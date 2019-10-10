@@ -574,6 +574,7 @@ class ConfocalLogic(GenericLogic):
 
         clock_status = self._scanning_device.set_up_scanner_clock(
             clock_frequency=self._clock_frequency)
+        # print('confocal logic freq: ' + str(self._clock_frequency))
 
         if clock_status < 0:
             self._scanning_device.module_state.unlock()

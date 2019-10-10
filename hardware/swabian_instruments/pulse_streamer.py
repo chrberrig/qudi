@@ -41,9 +41,13 @@ class PulseStreamer(Base, PulserInterface):
     _modclass = 'pulserinterface'
     _modtype = 'hardware'
 
-    _pulsestreamer_ip = ConfigOption('pulsestreamer_ip', '192.168.1.100', missing='warn')
+    _pulsestreamer_ip = ConfigOption('pulsestreamer_ip', '10.54.10.64', missing='warn')
     _laser_channel = ConfigOption('laser_channel', 0, missing='warn')
+    _clock_channel = ConfigOption('clock_channel', 1, missing='warn')  # added
     _uw_x_channel = ConfigOption('uw_x_channel', 2, missing='warn')
+
+    clock_frequency = 167e6
+
 
     def __init__(self, config, **kwargs):
         super().__init__(config=config, **kwargs)

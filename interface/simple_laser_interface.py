@@ -61,7 +61,7 @@ class SimpleLaserInterface(metaclass=InterfaceMetaclass):
 
     @abc.abstractmethod
     def set_power(self, power):
-        """ Set laer power ins watts
+        """ Set laser power in watts
           @param float power: laser power setpoint in watts
 
           @return float: laser power setpoint in watts

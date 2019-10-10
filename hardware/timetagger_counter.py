@@ -45,6 +45,7 @@ class TimeTaggerCounter(Base, SlowCounterInterface):
         """
         self._tagger = tt.createTimeTagger()
         self._count_frequency = 50  # Hz
+        # print('self._count_frequency on activate timetagger' + str(self._count_frequency))
 
         if self._sum_channels and self._channel_apd_1 is None:
             self.log.error('Cannot sum channels when only one apd channel given')
@@ -78,6 +79,7 @@ class TimeTaggerCounter(Base, SlowCounterInterface):
         """
 
         self._count_frequency = clock_frequency
+        print('timetagger freq = ' + str(self._count_frequency))
         return 0
 
     def set_up_counter(self,
@@ -105,7 +107,7 @@ class TimeTaggerCounter(Base, SlowCounterInterface):
         # currently, parameters passed to this function are ignored -- the channels used and clock frequency are
         # set at startup
         if self._mode == 1:
-            channel_combined = tt.Combiner(self._tagger, channels = [self._channel_apd_0, self._channel_apd_1])
+            channel_combined = tt.Combiner(self._tagger, channels=[self._channel_apd_0, self._channel_apd_1])
             self._channel_apd = channel_combined.getChannel()
 
             self.counter = tt.Counter(
@@ -138,11 +140,12 @@ class TimeTaggerCounter(Base, SlowCounterInterface):
             )
 
         self.log.info('set up counter with {0}'.format(self._count_frequency))
+        self._tagger.sync()
         return 0
 
     def get_counter_channels(self):
         if self._mode < 2:
-            return self._channel_apd
+            return [self._channel_apd]
         else:
             return [self._channel_apd_0, self._channel_apd_1]
 
@@ -167,8 +170,7 @@ class TimeTaggerCounter(Base, SlowCounterInterface):
 
         @return numpy.array(uint32): the photon counts per second
         """
-
-        time.sleep(2 / self._count_frequency)
+        #time.sleep(2 / self._count_frequency)
         if self._mode < 2:
             return self.counter.getData() * self._count_frequency
         else:
@@ -188,4 +190,36 @@ class TimeTaggerCounter(Base, SlowCounterInterface):
 
         @return int: error code (0:OK, -1:error)
         """
+        return 0
+
+    def test_signal(self, channel_list, bool):
+        self._tagger.setTestSignal(channel_list, bool)
+
+    def measure_for_gate(self):
+        """ Measures for a given time interval (given in secs)
+
+        @return int: count rate
+        """
+        self.counter.startFor(int((2. / self._count_frequency) * 1e12), clear=False)
+        # print(int((2.0 / self._count_frequency) * 1e12))
+        if self._mode < 2:
+            return self.counter.getData()
+        else:
+            return np.array([self.counter0.getData(),
+                             self.counter1.getData()])
+        #print(self.counter.getCaptureDuration())
+        self._tagger.sync()
+
+        #return 0
+
+    def start_measure(self):
+        """ Start the fast counter. """
+        self.counter.clear()
+        self.counter.start()
+        self._tagger.sync()
+        return 0
+
+    def stop_measure(self):
+        """ Stop the fast counter. """
+        self.counter.stop()
         return 0
