@@ -253,7 +253,7 @@ class ConfocalScannerPI_E727(Base, ConfocalScannerInterface):
         pitools.waitontarget(self.e727_controller, axes=axis)
         self._current_position = [x, y, z, a][0:len(self.get_scanner_axes())]
         wait_time = time.clock() - t0
-        time.sleep(1*wait_time)
+        time.sleep(8*wait_time)
         # for axis, target in zip(self.e727_controller.axes, self._volt_to_position(coord_list)[:-1]):
         #     self.e727_controller.MOV(axis, target*1e6)
         #pitools.waitontarget(self.e727_controller, axes=axis)

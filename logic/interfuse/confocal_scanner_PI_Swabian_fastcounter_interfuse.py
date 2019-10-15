@@ -26,6 +26,7 @@ from core.module import Base, Connector, ConfigOption
 from interface.confocal_scanner_interface import ConfocalScannerInterface
 
 
+
 class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
 
     """This is the Interface class to define the controls for the simple
@@ -37,7 +38,7 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
     # connectors
     fitlogic = Connector(interface='FitLogic')
     PI_E727_controller = Connector(interface='ConfocalScannerInterface')
-    timetagger_counter = Connector(interface='SlowCounterInterface')
+    timetagger_fast_counter = Connector(interface='FastCounterInterface')
 #    pulsestreamer = Connector(interface='PulserInterface')
 
 
@@ -70,13 +71,12 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
 
         self._fit_logic = self.fitlogic()
         self._scanner_hw = self.PI_E727_controller()
-        self._counter_hw = self.timetagger_counter()
+        self._counter_hw = self.timetagger_fast_counter()
 #        self._pulser_hw = self.pulsestreamer()
 
         # self._scanner_hw.on_activate()
         # self._counter_hw.on_activate()
-        self._counter_hw.set_up_clock(self.clock_frequency, None)
-        self._counter_hw.set_up_counter()
+        self._counter_hw.configure(bin_width_s=1e-6, record_length_s=100, number_of_gates=0)
         # self._counter_hw.test_signal([self._counter_hw.get_counter_channels()], True)
 
     def on_deactivate(self):
@@ -107,7 +107,7 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
         @return int: error code (0:OK, -1:error)
         """
         if myrange is None:
-            myrange = [[0,1],[0,1],[0,1],[0,1]]
+            myrange = [[0, 1], [0, 1], [0, 1], [0, 1]]
 
         self._scanner_hw.set_position_range(myrange=myrange)
 
@@ -228,17 +228,22 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
             self._set_up_line(np.shape(line_path)[1])
 
         count_data = np.zeros(self._line_length)
-        # self._counter_hw.configure(1e-6, self._line_length*self.pixel_exposure_time, self._line_length)
+        # self._counter_hw.configure(1e-6, self._line_length*self.pixel_exposure_time, 1) #  self._line_length)
+        self._counter_hw.configure(1e-6, self.pixel_exposure_time, 1)
         # self._counter_hw.test_signal([self._counter_hw._channel_apd], True)
         # self._counter_hw.pause_measure()
-        #self._counter_hw.start_measure()
+        # self._counter_hw.start_measure()
         # print(self._counter_hw.module_state())
         for i in range(self._line_length):
             t0 = time.clock()
             coords = line_path[:, i]
             self._scanner_hw.scanner_set_position(x=coords[0], y=coords[1], z=coords[2], a=coords[3])
-            #using the slow counter: (requires only timetagger)
-            count_data[i] = self._counter_hw.get_counter()[0][0]/self.clock_frequency
+            print(time.clock() - t0)
+            print(self._counter_hw.get_data_trace()[0])
+            # print(self._counter_hw.get_data_trace()[0].sum())
+            # print([type(x) for x in self._counter_hw.get_data_trace()])
+            count_data[i] = self._counter_hw.get_data_trace()[0].sum()
+            print(count_data[i])
 
             # updating_current position.
             self._current_position = list(line_path[:, -1])

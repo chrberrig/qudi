@@ -56,7 +56,7 @@ class TimeTaggerFastCounter(Base, FastCounterInterface, ODMRCounterInterface):
         # ODMR variables:
         self._counter_channel = self._channel_apd
         self._photon_source = None
-        self._clock_channel = None
+        self._clock_channel = None # self._channel_detect ?
         self._odmr_trigger_channel = None
 
         self.log.info('TimeTagger (fast counter) configured to use  channel {0}'

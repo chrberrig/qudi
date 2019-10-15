@@ -170,7 +170,7 @@ class TimeTaggerCounter(Base, SlowCounterInterface):
 
         @return numpy.array(uint32): the photon counts per second
         """
-        #time.sleep(2 / self._count_frequency)
+        time.sleep(2 / self._count_frequency)
         if self._mode < 2:
             return self.counter.getData() * self._count_frequency
         else:

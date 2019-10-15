@@ -40,10 +40,9 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
     timetagger_counter = Connector(interface='SlowCounterInterface')
 #    pulsestreamer = Connector(interface='PulserInterface')
 
-
     # config options
     #clock_frequency = ConfigOption('clock_frequency', 100, missing='warn')
-    clock_frequency = 10
+    clock_frequency = 300
     #pixel_exposure_time = 1/float(clock_frequency) # exposure time for photon collection pr. pixel in sec.
                                             # Python time.sleep is reliable within ~ 0.005s...
                                             # not suitable for times below 0.1 sec
