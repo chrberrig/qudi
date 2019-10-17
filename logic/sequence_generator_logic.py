@@ -74,7 +74,7 @@ class SequenceGeneratorLogic(GenericLogic, SamplingFunctions, SamplesWriteMethod
         OrderedDict({'a_ch1': 0.5, 'a_ch2': 0.5, 'a_ch3': 0.5, 'a_ch4': 0.5}))
     sample_rate = StatusVar('sample_rate', 25e9)
 
-    _config_waveform_format = ConfigOption('default_waveform_format', default='wfmx')
+    _config_waveform_format = ConfigOption('default_waveform_format', default='wfmx') #  default='pstream')
     waveform_format = StatusVar('waveform_format', None)
 
     # define signals
