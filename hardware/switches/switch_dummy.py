@@ -24,11 +24,16 @@ from core.module import Base
 from interface.switch_interface import SwitchInterface
 import time
 
+
 class SwitchDummy(Base, SwitchInterface):
     """ Methods to control slow laser switching devices.
+
+    Example config for copy-paste:
+
+    switch_dummy:
+        module.Class: 'switches.switch_dummy.SwitchDummy'
+
     """
-    _modclass = 'switchinterfacedummy'
-    _modtype = 'hardware'
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

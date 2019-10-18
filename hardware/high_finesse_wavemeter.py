@@ -29,7 +29,8 @@ import ctypes   # is a foreign function library for Python. It provides C
                 # in pure Python.
 
 from interface.wavemeter_interface import WavemeterInterface
-from core.module import Base, ConfigOption
+from core.module import Base
+from core.configoption import ConfigOption
 from core.util.mutex import Mutex
 
 
@@ -76,12 +77,18 @@ class HardwarePull(QtCore.QObject):
 
 
 class HighFinesseWavemeter(Base,WavemeterInterface):
+    """ Hardware class to controls a High Finesse Wavemeter.
 
-    _modclass = 'HighFinesseWavemeter'
-    _modtype = 'hardware'
+    Example config for copy-paste:
+
+    high_finesse_wavemeter:
+        module.Class: 'high_finesse_wavemeter.HighFinesseWavemeter'
+        measurement_timing: 10.0 # in seconds
+
+    """
 
     # config options
-    _measurement_timing = ConfigOption('measurement_timing', 10.)
+    _measurement_timing = ConfigOption('measurement_timing', default=10.)
 
     # signals
     sig_handle_timer = QtCore.Signal(bool)

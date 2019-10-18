@@ -21,22 +21,34 @@ top-level directory of this distribution and at <https://github.com/Ulm-IQO/qudi
 
 from influxdb import InfluxDBClient
 
-from core.module import Base, ConfigOption
+from core.module import Base
+from core.configoption import ConfigOption
 from interface.process_interface import ProcessInterface
 
 
 class InfluxDataClient(Base, ProcessInterface):
     """ Retrieve live data from InfluxDB as if the measurement device was connected directly.
-    """
 
-    _modclass = 'InfluxDataClient'
-    _modtype = 'hardware'
+    Example config for copy-paste:
+
+    influx_data_client:
+        module.Class: 'influx_data_client.InfluxDataClient'
+        user: 'client_user'
+        password: 'client_password'
+        dbname: 'db_name'
+        host: 'localhost'
+        port: 8086
+        dataseries: 'data_series_name'
+        field: 'field_name'
+        criterion: 'criterion_name'
+
+    """
 
     user = ConfigOption('user', missing='error')
     pw = ConfigOption('password', missing='error')
     dbname = ConfigOption('dbname', missing='error')
     host = ConfigOption('host', missing='error')
-    port = ConfigOption('port', 8086)
+    port = ConfigOption('port', default=8086)
     series = ConfigOption('dataseries', missing='error')
     field = ConfigOption('field', missing='error')
     cr = ConfigOption('criterion', missing='error')
@@ -55,14 +67,13 @@ class InfluxDataClient(Base, ProcessInterface):
         """ Connect to Influx database """
         self.conn = InfluxDBClient(self.host, self.port, self.user, self.pw, self.dbname)
 
-    def getProcessValue(self):
+    def get_process_value(self):
         """ Return a measured value """
         q = 'SELECT last({0}) FROM {1} WHERE (time > now() - 10m AND {2})'.format(self.field, self.series, self.cr)
-        #print(q)
         res = self.conn.query(q)
         return list(res[('{0}'.format(self.series), None)])[0]['last']
 
-    def getProcessUnit(self):
+    def get_process_unit(self):
         """ Return the unit that the value is measured in
 
             @return (str, str): a tuple of ('abreviation', 'full unit name')

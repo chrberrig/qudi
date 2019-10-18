@@ -24,7 +24,8 @@ import visa
 import numpy as np
 import time
 
-from core.module import Base, ConfigOption
+from core.module import Base
+from core.configoption import ConfigOption
 from interface.microwave_interface import MicrowaveInterface
 from interface.microwave_interface import MicrowaveLimits
 from interface.microwave_interface import MicrowaveMode
@@ -41,10 +42,15 @@ class MicrowaveSMR(Base, MicrowaveInterface):
     GPIB connection through visa, please have a look at:
 
     http://cdn.rohde-schwarz.com/pws/dl_downloads/dl_common_library/dl_manuals/gb_1/s/smr_1/smr_20-40.pdf
-    """
 
-    _modclass = 'MicrowaveSMR'
-    _modtype = 'hardware'
+    Example config for copy-paste:
+
+    mw_source_smr:
+        module.Class: 'microwave.mw_source_smr.MicrowaveSMR'
+        gpib_address: 'GPIB0::28::INSTR'
+        gpib_timeout: 10
+
+    """
 
     _gpib_address = ConfigOption('gpib_address', missing='error')
     _gpib_timeout = ConfigOption('gpib_timeout', 10, missing='warn')
@@ -204,11 +210,11 @@ class MicrowaveSMR(Base, MicrowaveInterface):
         mode, dummy = self.get_status()
 
         if 'list' in mode:
-            pow_list = self._ask(':LIST:POW?').strip().split(',')
+            power_list = self._ask(':LIST:POW?').strip().split(',')
 
             # THIS AMBIGUITY IN THE RETURN VALUE TYPE IS NOT GOOD AT ALL!!!
             #FIXME: Correct that as soon as possible in the interface!!!
-            return np.array([float(pow) for pow in pow_list])
+            return np.array([float(power) for power in power_list])
 
         else:
             return float(self._ask(':POW?'))
@@ -489,12 +495,14 @@ class MicrowaveSMR(Base, MicrowaveInterface):
         self._command_wait(':ABORT')
         return 0
 
-    def set_ext_trigger(self, pol=TriggerEdge.RISING):
+    def set_ext_trigger(self, pol, timing):
         """ Set the external trigger for this device with proper polarization.
 
+        @param float timing: estimated time between triggers
         @param TriggerEdge pol: polarisation of the trigger (basically rising edge or falling edge)
 
-        @return object: current trigger polarity [TriggerEdge.RISING, TriggerEdge.FALLING]
+        @return object, float: current trigger polarity [TriggerEdge.RISING, TriggerEdge.FALLING],
+            trigger timing
         """
         if pol == TriggerEdge.RISING:
             edge = 'POS'
@@ -512,9 +520,9 @@ class MicrowaveSMR(Base, MicrowaveInterface):
 
         polarity = self._ask(':TRIG1:SLOP?')
         if 'NEG' in polarity:
-            return TriggerEdge.FALLING
+            return TriggerEdge.FALLING, timing
         else:
-            return TriggerEdge.RISING
+            return TriggerEdge.RISING, timing
 
     # ================== Non interface commands: ==================
 

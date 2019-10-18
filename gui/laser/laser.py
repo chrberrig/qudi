@@ -25,7 +25,7 @@ import os
 import pyqtgraph as pg
 import time
 
-from core.module import Connector
+from core.connector import Connector
 from gui.colordefs import QudiPalettePale as palette
 from gui.guibase import GUIBase
 from interface.simple_laser_interface import ControlMode, ShutterState, LaserState
@@ -65,8 +65,6 @@ class LaserWindow(QtWidgets.QMainWindow):
 class LaserGUI(GUIBase):
     """ FIXME: Please document
     """
-    _modclass = 'lasergui'
-    _modtype = 'gui'
 
     ## declare connectors
     laserlogic = Connector(interface='LaserLogic')
@@ -243,7 +241,7 @@ class LaserGUI(GUIBase):
         elif self._laser_logic.laser_shutter == ShutterState.NOSHUTTER:
             self._mw.shutterButton.setText('No shutter.')
         else:
-            self._mw.laserButton.setText('Shutter: ?')
+            self._mw.shutterButton.setText('Shutter: ?')
 
         self._mw.currentRadioButton.setEnabled(self._laser_logic.laser_can_current)
         self._mw.powerRadioButton.setEnabled(self._laser_logic.laser_can_power)

@@ -25,7 +25,8 @@ Copyright (c) the Qudi Developers. See the COPYRIGHT.txt file at the
 top-level directory of this distribution and at <https://github.com/Ulm-IQO/qudi/>
 """
 
-from core.module import Base, ConfigOption
+from core.module import Base
+from core.configoption import ConfigOption
 from core.util.modules import get_home_dir
 from interface.pulser_interface import PulserInterface, PulserConstraints
 from collections import OrderedDict
@@ -35,11 +36,19 @@ import os
 import hardware.swabian_instruments.pulse_streamer_pb2 as pulse_streamer_pb2
 import dill
 
+
 class PulseStreamer(Base, PulserInterface):
-    """Methods to control PulseStreamer.
+    """ Methods to control PulseStreamer.
+
+    Example config for copy-paste:
+
+    pulse_streamer:
+        module.Class: 'swabian_instruments.pulse_streamer.PulseStreamer'
+        pulsestreamer_ip: '192.168.1.100'
+        laser_channel: 0
+        uw_x_channel: 2
+
     """
-    _modclass = 'pulserinterface'
-    _modtype = 'hardware'
 
     _pulsestreamer_ip = ConfigOption('pulsestreamer_ip', '10.54.10.64', missing='warn')
     _laser_channel = ConfigOption('laser_channel', 0, missing='warn')
@@ -139,10 +148,10 @@ class PulseStreamer(Base, PulserInterface):
 
         # sample file length max is not well-defined for PulseStreamer, which collates sequential identical pulses into
         # one. Total number of not-sequentially-identical pulses which can be stored: 1 M.
-        constraints.sampled_file_length.min = 1
-        constraints.sampled_file_length.max = 134217728
-        constraints.sampled_file_length.step = 1
-        constraints.sampled_file_length.default = 1
+        constraints.waveform_length.min = 1
+        constraints.waveform_length.max = 134217728
+        constraints.waveform_length.step = 1
+        constraints.waveform_length.default = 1
 
         # the name a_ch<num> and d_ch<num> are generic names, which describe UNAMBIGUOUSLY the
         # channels. Here all possible channel configurations are stated, where only the generic

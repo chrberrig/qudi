@@ -30,9 +30,10 @@ import sys
 import time
 
 from collections import OrderedDict
-from core.module import ConfigOption
+from core.configoption import ConfigOption
 from core.util import units
 from core.util.mutex import Mutex
+from core.util.network import netobtain
 from logic.generic_logic import GenericLogic
 from matplotlib.backends.backend_pdf import PdfPages
 from PIL import Image
@@ -120,9 +121,6 @@ class SaveLogic(GenericLogic):
     A general class which saves all kinds of data in a general sense.
     """
 
-    _modclass = 'savelogic'
-    _modtype = 'logic'
-
     _win_data_dir = ConfigOption('win_data_directory', 'C:/Data/')
     _unix_data_dir = ConfigOption('unix_data_directory', 'Data')
     log_into_daily_directory = ConfigOption('log_into_daily_directory', False, missing='warn')
@@ -155,6 +153,8 @@ class SaveLogic(GenericLogic):
         'savefig.dpi': '180'
         }
 
+    _additional_parameters = {}
+
     def __init__(self, config, **kwargs):
         super().__init__(config=config, **kwargs)
 
@@ -177,6 +177,9 @@ class SaveLogic(GenericLogic):
             self.data_dir = self._win_data_dir
         else:
             raise Exception('Identify the operating system.')
+
+        # Expand environment variables in the data_dir path (e.g. $HOME)
+        self.data_dir = os.path.expandvars(self.data_dir)
 
         # start logging into daily directory?
         if not isinstance(self.log_into_daily_directory, bool):
@@ -417,6 +420,8 @@ class SaveLogic(GenericLogic):
         if parameters is not None:
             # check whether the format for the parameters have a dict type:
             if isinstance(parameters, dict):
+                if isinstance(self._additional_parameters, dict):
+                    parameters = {**self._additional_parameters, **parameters}
                 for entry, param in parameters.items():
                     if isinstance(param, float):
                         header += '{0}: {1:.16e}\n'.format(entry, param)
@@ -602,7 +607,7 @@ class SaveLogic(GenericLogic):
             folderlist = [d for d in os.listdir(current_dir) if os.path.isdir(os.path.join(current_dir, d))]
             # Search if there is a folder which starts with the current date:
             for entry in folderlist:
-                if (time.strftime("%Y%m%d") in (entry[:2])):
+                if time.strftime("%Y%m%d") in (entry[:2]):
                     current_dir = os.path.join(current_dir, str(entry))
                     folder_exists = True
                     break
@@ -631,3 +636,39 @@ class SaveLogic(GenericLogic):
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
         return dir_path
+
+    def get_additional_parameters(self):
+        """ Method that return the additional parameters dictionary securely """
+        return self._additional_parameters.copy()
+
+    def update_additional_parameters(self, *args, **kwargs):
+        """
+        Method to update one or multiple additional parameters
+
+        @param dict args: Optional single positional argument holding parameters in a dict to
+                          update additional parameters from.
+        @param kwargs: Optional keyword arguments to be added to additional parameters
+        """
+        if len(args) == 0:
+            param_dict = kwargs
+        elif len(args) == 1 and isinstance(args[0], dict):
+            param_dict = args[0]
+            param_dict.update(kwargs)
+        else:
+            raise TypeError('"update_additional_parameters" takes exactly 0 or 1 positional '
+                            'argument of type dict.')
+
+        for key in param_dict.keys():
+            param_dict[key] = netobtain(param_dict[key])
+        self._additional_parameters.update(param_dict)
+        return
+
+    def remove_additional_parameter(self, key):
+        """
+        remove parameter from additional parameters
+
+        @param str key: The additional parameters key/name to delete
+        """
+        self._additional_parameters.pop(key, None)
+        return
+
