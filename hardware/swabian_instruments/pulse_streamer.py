@@ -222,6 +222,7 @@ class PulseStreamer(Base, PulserInterface):
         # get samples from file
         filepath = os.path.join(self.host_waveform_directory, asset_name + '.pstream')
         pulse_sequence_raw = dill.load(open(filepath, 'rb'))
+        # pulse_sequence_raw = samples_write_methods._write_pstream(data)
 
         pulse_sequence = []
         for pulse in pulse_sequence_raw:

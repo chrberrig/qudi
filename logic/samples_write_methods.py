@@ -448,6 +448,7 @@ class SamplesWriteMethods():
         filepath = os.path.join(self.waveform_dir, filename)
         dill.dump(pulses, open(filepath, 'wb'))
 
+        # return pulses
         return created_files
 
     def _write_seq(self, name, sequence_param):
