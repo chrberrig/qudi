@@ -180,14 +180,14 @@ class PulserInterface(metaclass=InterfaceMetaclass):
                       channel.
 
         For devices that have a workspace (i.e. AWG) this will load the waveform
-        from the device workspace into the channel. For a device without mass
-        memory, this will make the waveform/pattern that has been previously
-        written with self.write_waveform ready to play.
+        from the device workspace into the channel.
+        For a device without mass memory, this will make the waveform/pattern that has been
+        previously written with self.write_waveform ready to play.
 
         Please note that the channel index used here is not to be confused with the number suffix
         in the generic channel descriptors (i.e. 'd_ch1', 'a_ch1'). The channel index used here is
         highly hardware specific and corresponds to a collection of digital and analog channels
-        being associated to a SINGLE wavfeorm asset.
+        being associated to a SINGLE waveform asset.
         """
         pass
 
