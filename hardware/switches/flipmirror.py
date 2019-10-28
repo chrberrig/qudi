@@ -21,7 +21,8 @@ top-level directory of this distribution and at <https://github.com/Ulm-IQO/qudi
 
 import visa
 import time
-from core.module import Base, ConfigOption
+from core.module import Base
+from core.configoption import ConfigOption
 from core.util.mutex import Mutex
 from interface.switch_interface import SwitchInterface
 
@@ -29,9 +30,14 @@ from interface.switch_interface import SwitchInterface
 class FlipMirror(Base, SwitchInterface):
     """ This class is implements communication with the Radiant Dyes flip mirror driver
         through pyVISA.
+
+    Example config for copy-paste:
+
+    flipmirror_switch:
+        module.Class: 'switches.flipmirror.FlipMirror'
+        interface: 'ASRL1::INSTR'
+
     """
-    _modclass = 'switchinterface'
-    _modtype = 'hardware'
 
     serial_interface = ConfigOption('interface', 'ASRL1::INSTR', missing='warn')
 

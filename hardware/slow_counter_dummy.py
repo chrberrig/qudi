@@ -24,19 +24,28 @@ import numpy as np
 import random
 import time
 
-from core.module import Base, ConfigOption
+from core.module import Base
+from core.configoption import ConfigOption
 from interface.slow_counter_interface import SlowCounterInterface
 from interface.slow_counter_interface import SlowCounterConstraints
 from interface.slow_counter_interface import CountingMode
 
 
 class SlowCounterDummy(Base, SlowCounterInterface):
+    """ Dummy hardware class to emulate a slow counter with various distributions.
 
-    """This is the Interface class to define the controls for the simple
-    microwave hardware.
+    Example config for copy-paste:
+
+    slow_counter_dummy:
+        module.Class: 'slow_counter_dummy.SlowCounterDummy'
+        clock_frequency: 100 # in Hz
+        samples_number: 10
+        source_channels: 2
+        count_distribution: 'dark_bright_gaussian' # other options are:
+            # 'uniform, 'exponential', 'single_poisson', 'dark_bright_poisson'
+            #  and 'single_gaussian'.
+
     """
-    _modclass = 'SlowCounterDummy'
-    _modtype = 'hardware'
 
     # config
     _clock_frequency = ConfigOption('clock_frequency', 100, missing='warn')

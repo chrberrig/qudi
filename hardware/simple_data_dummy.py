@@ -27,10 +27,14 @@ from interface.simple_data_interface import SimpleDataInterface
 
 
 class SimpleDummy(Base, SimpleDataInterface):
+    """ A simple Data generator dummy.
+
+    Example config for copy-paste:
+
+    simple_data_dummy:
+        module.Class: 'simple_data_dummy.SimpleDummy'
+
     """
-    """
-    _modclass = 'simple'
-    _modtype = 'hardware'
 
     def on_activate(self):
         pass

@@ -37,11 +37,8 @@ from core.config import load, save
 
 
 class FitLogic(GenericLogic):
-
     """
-    UNSTABLE:Jochen Scheuer
-
-    Documentation to add a new fit model/estimator/funciton can be found in
+    Documentation to add a new fit model/estimator/function can be found in
     documentation/how_to_use_fitting.md or in the online documentation at
     http://qosvn.physik.uni-ulm.de/qudi-docs/fit_logic.html
 
@@ -51,9 +48,6 @@ class FitLogic(GenericLogic):
     For clarity reasons the fit function are imported from different files
     seperated by function type, e.g. gaussianlikemethods, sinemethods, generalmethods
     """
-    _modclass = 'fitlogic'
-    _modtype = 'logic'
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # locking for thread safety
@@ -82,7 +76,6 @@ class FitLogic(GenericLogic):
         for files in filenames:
 
             mod = importlib.import_module('logic.fitmethods.{0}'.format(files))
-
             for method in dir(mod):
                 ref = getattr(mod, method)
                 if callable(ref) and (inspect.ismethod(ref) or inspect.isfunction(ref)):
@@ -145,7 +138,7 @@ class FitLogic(GenericLogic):
                                ''.format(fit_name))
 
         self.log.info('Methods were included to FitLogic, but only if naming is right: check the'
-                         ' doxygen documentation if you added a new method and it does not show.')
+                      ' doxygen documentation if you added a new method and it does not show.')
 
     def on_activate(self):
         """ Initialisation performed during activation of the module.
@@ -161,7 +154,7 @@ class FitLogic(GenericLogic):
 
     def validate_load_fits(self, fits):
         """ Take fit names and estimators from a dict and check if they are valid.
-            @param fits dict: dictionary conatining fit and estimator description
+            @param fits dict: dictionary containing fit and estimator description
 
             @return dict: checked dictionary with references to fit, model and estimator
 
@@ -191,12 +184,10 @@ class FitLogic(GenericLogic):
             for name, fit in dfits.items():
                 try:
                     fname = fit['fit_function']
-                    new_fit = {}
-                    new_fit['fit_name'] = fname
-                    new_fit['est_name'] = fit['estimator']
-                    new_fit['make_fit'] = self.fit_list[dim][fname]['make_fit']
-                    new_fit['make_model'] = self.fit_list[dim][fname]['make_model']
-                    new_fit['estimator'] = self.fit_list[dim][fname][fit['estimator']]
+                    new_fit = {'fit_name': fname, 'est_name': fit['estimator'],
+                               'make_fit': self.fit_list[dim][fname]['make_fit'],
+                               'make_model': self.fit_list[dim][fname]['make_model'],
+                               'estimator': self.fit_list[dim][fname][fit['estimator']]}
                     try:
                         par = lmfit.parameter.Parameters()
                         par.loads(fit['parameters'])
@@ -224,10 +215,8 @@ class FitLogic(GenericLogic):
             save_fits[dim] = OrderedDict()
             for name, fit in dfits.items():
                 try:
-                    new_fit = {}
-                    new_fit['fit_function'] = fit['fit_name']
-                    new_fit['estimator'] = fit['est_name']
-                    new_fit['parameters'] = fit['parameters'].dumps()
+                    new_fit = {'fit_function': fit['fit_name'], 'estimator': fit['est_name'],
+                               'parameters': fit['parameters'].dumps()}
                     save_fits[dim][name] = new_fit
                 except KeyError:
                     self.log.exception('Error while preparing fit {0} for saving.'.format(name))
@@ -240,7 +229,8 @@ class FitLogic(GenericLogic):
 
             @return dict: validated fit dictionary with function references and parameter objects
         """
-        user_fits = OrderedDict()
+        if not filename:
+            return {'1d': dict(), '2d': dict(), '3d': dict()}
         fits = load(filename)
         return self.validate_load_fits(fits)
 
@@ -263,6 +253,7 @@ class FitLogic(GenericLogic):
         This is a convenience function so you do not have to mess with an extra import in modules
         using FitLogic.
         """
+      
         return FitContainer(self, container_name, dimension)
 
 
@@ -295,12 +286,12 @@ class FitContainer(QtCore.QObject):
             raise Exception('Invalid dimension {0}'.format(dimension))
         self.dimension = dimension
         self.fit_list = OrderedDict()
-
         # variables for fitting
         self.fit_granularity_fact = 10
         self.current_fit = 'No Fit'
         self.current_fit_param = lmfit.parameter.Parameters()
         self.current_fit_result = None
+        self.use_settings = None
         self.units = ['independent variable {0}'.format(i+1) for i in range(self.dim)]
         self.units.append('dependent variable')
 
@@ -358,8 +349,18 @@ class FitContainer(QtCore.QObject):
             self.current_fit = 'No Fit'
         else:
             self.current_fit = current_fit
+            if current_fit != 'No Fit':
+                use_settings = self.fit_list[self.current_fit]['use_settings']
+                self.use_settings = lmfit.parameter.Parameters()
+                # Update the use parameter dictionary
+                for para in use_settings:
+                    if use_settings[para]:
+                        self.use_settings[para]=self.fit_list[self.current_fit]['parameters'][para]
+            else:
+                self.use_settings=None
         self.clear_result()
         self.sigCurrentFit.emit(self.current_fit)
+        return self.current_fit, self.use_settings
 
     def do_fit(self, x_data, y_data):
         """Performs the chosen fit on the measured data.
@@ -399,7 +400,7 @@ class FitContainer(QtCore.QObject):
             'x_axis': x_data,
             'data': y_data,
             'units': self.units,
-            'add_params': None}
+            'add_params': self.use_settings}
 
         result = None
 

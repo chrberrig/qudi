@@ -21,16 +21,22 @@ top-level directory of this distribution and at <https://github.com/Ulm-IQO/qudi
 
 import visa
 import time
-from core.module import Base, ConfigOption
+from core.module import Base
+from core.configoption import ConfigOption
 from core.util.mutex import Mutex
 from interface.switch_interface import SwitchInterface
 
 
 class HBridge(Base, SwitchInterface):
     """ Methods to control slow laser switching devices.
+
+    Example config for copy-paste:
+
+    flipmirror_switch:
+        module.Class: 'switches.hbridge.HBridge'
+        interface: 'ASRL1::INSTR'
+
     """
-    _modclass = 'switchinterface'
-    _modtype = 'hardware'
 
     serial_interface = ConfigOption('interface', 'ASRL1::INSTR', missing='warn')
 
@@ -110,7 +116,7 @@ class HBridge(Base, SwitchInterface):
           @return bool: True if suceeds, False otherwise
         """
         coilnr = int(switchNumber) + 1
-        if int(coilnr) > 0 and int(coilnr) < 5:
+        if 0 < int(coilnr) < 5:
             with self.lock:
                 try:
                     answer = self.inst.ask('P{0}=1'.format(coilnr))
@@ -134,7 +140,7 @@ class HBridge(Base, SwitchInterface):
           @return bool: True if suceeds, False otherwise
         """
         coilnr = int(switchNumber) + 1
-        if int(coilnr) > 0 and int(coilnr) < 5:
+        if 0 < int(coilnr) < 5:
             with self.lock:
                 try:
                     answer = self.inst.ask('P{0}=0'.format(coilnr))

@@ -20,17 +20,25 @@ Copyright (c) the Qudi Developers. See the COPYRIGHT.txt file at the
 top-level directory of this distribution and at <https://github.com/Ulm-IQO/qudi/>
 """
 
-from core.module import Base, ConfigOption
+from core.module import Base
+from core.configoption import ConfigOption
 import visa
 
-class CTC100(Base):
-    """
-    This module implements communication with CTC100 temperature controllers or clones/licensed devices.
 
-    This module is untested and very likely broken.
+class CTC100(Base):
+    """ This module implements communication with CTC100 temperature controllers
+    or clones/licensed devices.
+
+    ATTENTION: This module is untested and very likely broken.
+
+    Example config for copy-paste:
+
+    tempcontroller_ctc100:
+        module.Class: 'CTC100_temperature.CTC100'
+        interface: 'ASRL1::INSTR'
+        fitlogic: 'fitlogic' # name of the fitlogic module, see default config
+
     """
-    _modclass = 'ctc100'
-    _modtype = 'hardware'
 
     # config options
     _interface = ConfigOption('interface', missing='error')

@@ -21,20 +21,23 @@ Copyright (c) the Qudi Developers. See the COPYRIGHT.txt file at the
 top-level directory of this distribution and at <https://github.com/Ulm-IQO/qudi/>
 """
 
-from core.module import Base, ConfigOption
+from core.module import Base
+from core.configoption import ConfigOption
 import visa
 
 class EdwardsVacuumController(Base):
+    """ This module implements communication with Edwards turbopump and vacuum
+    PIC.
+
+    ATTENTION: This module is not complete or functional.
+
+    Example config for copy-paste:
+
+    vacuum_control_edwards:
+        module.Class: 'edwards_vacuum_controller.EdwardsVacuumController'
+        interface: 'ASRL1::INSTR'
+
     """
-    This module implements communication with Edwards turbopump and
-    vacuum PIC.
-
-
-    This module is not complete or functional.
-    """
-    _modclass = 'edwards_pump'
-    _modtype = 'hardware'
-
     # config options
     _interface = ConfigOption('interface', missing='error')
 

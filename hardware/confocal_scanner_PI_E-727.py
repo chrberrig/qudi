@@ -23,7 +23,8 @@ import numpy as np
 import time
 from pipython import GCSDevice, pitools
 
-from core.module import Base, Connector, ConfigOption
+from core.module import Base, Connector
+from core.configoption import ConfigOption
 from interface.confocal_scanner_interface import ConfocalScannerInterface
 
 class ConfocalScannerPI_E727(Base, ConfocalScannerInterface):

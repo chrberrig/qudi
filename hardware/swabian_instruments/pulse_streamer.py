@@ -25,7 +25,8 @@ Copyright (c) the Qudi Developers. See the COPYRIGHT.txt file at the
 top-level directory of this distribution and at <https://github.com/Ulm-IQO/qudi/>
 """
 
-from core.module import Base, ConfigOption
+from core.module import Base
+from core.configoption import ConfigOption
 from core.util.modules import get_home_dir
 from interface.pulser_interface import PulserInterface, PulserConstraints
 from collections import OrderedDict
@@ -35,18 +36,24 @@ import os
 import hardware.swabian_instruments.pulse_streamer_pb2 as pulse_streamer_pb2
 import dill
 
+
 class PulseStreamer(Base, PulserInterface):
-    """Methods to control PulseStreamer.
+    """ Methods to control PulseStreamer.
+
+    Example config for copy-paste:
+
+    pulse_streamer:
+        module.Class: 'swabian_instruments.pulse_streamer.PulseStreamer'
+        pulsestreamer_ip: '192.168.1.100'
+        laser_channel: 0
+        uw_x_channel: 2
+
     """
-    _modclass = 'pulserinterface'
-    _modtype = 'hardware'
 
     _pulsestreamer_ip = ConfigOption('pulsestreamer_ip', '10.54.10.64', missing='warn')
     _laser_channel = ConfigOption('laser_channel', 0, missing='warn')
-    _tt_gate_channel = ConfigOption('tt_gate_channel', 1, missing='warn')  # added
     _uw_x_channel = ConfigOption('uw_x_channel', 2, missing='warn')
 
-#    clock_frequency = 167e6
 
 
     def __init__(self, config, **kwargs):
@@ -74,7 +81,7 @@ class PulseStreamer(Base, PulserInterface):
 
         self.current_status = -1
         self.sample_rate = 1e9
-        self.current_loaded_asset = None
+        self.current_loaded_asset = {}, None
 
         self._channel = grpc.insecure_channel(self._pulsestreamer_ip + ':50051')
 
@@ -118,7 +125,7 @@ class PulseStreamer(Base, PulserInterface):
         """
         constraints = PulserConstraints()
 
-        # The file formats are hardware specific.
+
         constraints.waveform_format = ['pstream']
         constraints.sequence_format = []
 
@@ -139,20 +146,60 @@ class PulseStreamer(Base, PulserInterface):
 
         # sample file length max is not well-defined for PulseStreamer, which collates sequential identical pulses into
         # one. Total number of not-sequentially-identical pulses which can be stored: 1 M.
-        constraints.sampled_file_length.min = 1
-        constraints.sampled_file_length.max = 134217728
-        constraints.sampled_file_length.step = 1
-        constraints.sampled_file_length.default = 1
+        constraints.waveform_length.min = 1
+        constraints.waveform_length.max = 134217728
+        constraints.waveform_length.step = 1
+        constraints.waveform_length.default = 1
 
         # the name a_ch<num> and d_ch<num> are generic names, which describe UNAMBIGUOUSLY the
         # channels. Here all possible channel configurations are stated, where only the generic
         # names should be used. The names for the different configurations can be customary chosen.
         activation_config = OrderedDict()
-        activation_config['all'] = ['d_ch1', 'd_ch2', 'd_ch3', 'd_ch4', 'd_ch5', 'd_ch6', 'd_ch7',
-                                    'd_ch8']
+        activation_config['digital'] = frozenset({'d_ch1', 'd_ch2', 'd_ch3', 'd_ch4', 'd_ch5', 'd_ch6', 'd_ch7',
+                                    'd_ch8'})
+        activation_config['analogue'] = frozenset({'a_ch1', 'a_ch2'})
+        activation_config['all'] = frozenset({'d_ch1', 'd_ch2', 'd_ch3', 'd_ch4', 'd_ch5', 'd_ch6', 'd_ch7',
+                                    'd_ch8', 'a_ch1', 'a_ch2'})
         constraints.activation_config = activation_config
 
         return constraints
+
+        # # The file formats are hardware specific.
+        # constraints['waveform_format'] = 'pstream'
+        # constraints['sequence_format'] = None
+        #
+        # constraints['sample_rate'] = {
+        #     'min': 1e9,
+        #     'max': 1e9,
+        #     'step': 0,
+        #     'default': 1e9}
+        # constraints['d_ch_low'] = {
+        #     'min': 0.0,
+        #     'max': 0.0,
+        #     'step': 0.0,
+        #     'default': 0.0}
+        # constraints['d_ch_high'] = {
+        #     'min': 3.3,
+        #     'max': 3.3,
+        #     'step': 0.0,
+        #     'default': 3.3}
+        # # sample file length max is not well-defined for PulseStreamer, which collates sequential identical pulses into
+        # # one. Total number of not-sequentially-identical pulses which can be stored: 1 M.
+        # constraints['waveform_length'] = {
+        #     'min': 1,
+        #     'max': 134217728,
+        #     'step': 1,
+        #     'default': 1}
+        #
+        # # the name a_ch<num> and d_ch<num> are generic names, which describe UNAMBIGUOUSLY the
+        # # channels. Here all possible channel configurations are stated, where only the generic
+        # # names should be used. The names for the different configurations can be customary chosen.
+        # activation_config = OrderedDict()
+        # activation_config['all'] = ['d_ch1', 'd_ch2', 'd_ch3', 'd_ch4', 'd_ch5', 'd_ch6', 'd_ch7',
+        #                             'd_ch8']
+        # constraints['activation_config'] = activation_config
+        # return constraints
+
 
     def pulser_on(self):
         """ Switches the pulsing device on.
@@ -177,65 +224,197 @@ class PulseStreamer(Base, PulserInterface):
         self.current_status = 0
         return 0
 
-    def upload_asset(self, asset_name=None):
-        """ Upload an already hardware conform file to the device.
-            Does NOT load it into channels.
-
-        @param name: string, name of the ensemble/seqeunce to be uploaded
-
-        @return int: error code (0:OK, -1:error)
+    def get_loaded_assets(self):
         """
-        self.log.debug('PulseStreamer has no own storage capability.\n"upload_asset" call ignored.')
-        return 0
+        Retrieve the currently loaded asset names for each active channel of the device.
+        The returned dictionary will have the channel numbers as keys.
+        In case of loaded waveforms the dictionary values will be the waveform names.
+        In case of a loaded sequence the values will be the sequence name appended by a suffix
+        representing the track loaded to the respective channel (i.e. '<sequence_name>_1').
 
-    def load_asset(self, asset_name, load_dict=None):
-        """ Loads a sequence or waveform to the specified channel of the pulsing
-            device.
+        @return (dict, str):    Dictionary with keys being the channel number and values being the
+                                respective asset loaded into the channel,
+                                string describing the asset type ('waveform' or 'sequence')
+         """
+        return self.current_loaded_asset
 
-        @param str asset_name: The name of the asset to be loaded
+    def delete_waveform(self, waveform_name):
+        """ Delete the waveform with name "waveform_name" from the device memory.
 
-        @param dict load_dict:  a dictionary with keys being one of the
-                                available channel numbers and items being the
-                                name of the already sampled
-                                waveform/sequence files.
-                                Examples:   {1: rabi_Ch1, 2: rabi_Ch2}
-                                            {1: rabi_Ch2, 2: rabi_Ch1}
-                                This parameter is optional. If none is given
-                                then the channel association is invoked from
-                                the sequence generation,
-                                i.e. the filename appendix (_Ch1, _Ch2 etc.)
+        @param str waveform_name: The name of the waveform to be deleted
+                                  Optionally a list of waveform names can be passed.
 
-        @return int: error code (0:OK, -1:error)
+        @return list: a list of deleted waveform names.
+        Unused for digital pulse generators without sequence storage capability
+        (PulseBlaster, FPGA).
+        """
+        pass
+
+    def delete_sequence(self, sequence_name):
+        """ Delete the sequence with name "sequence_name" from the device memory.
+
+        @param str sequence_name: The name of the sequence to be deleted
+                                  Optionally a list of sequence names can be passed.
+
+        @return list: a list of deleted sequence names.
+        Unused for digital pulse generators without sequence storage capability
+        (PulseBlaster, FPGA).
+        """
+        pass
+
+    def write_waveform(self, name, analog_samples, digital_samples, is_first_chunk, is_last_chunk,
+                       total_number_of_samples):
+        """
+        Write a new waveform or append samples to an already existing waveform on the device memory.
+        The flags is_first_chunk and is_last_chunk can be used as indicator if a new waveform should
+        be created or if the write process to a waveform should be terminated.
+
+        NOTE: All sample arrays in analog_samples and digital_samples must be of equal length!
+
+        @param str name: the name of the waveform to be created/append to
+        @param dict analog_samples: keys are the generic analog channel names (i.e. 'a_ch1') and
+                                    values are 1D numpy arrays of type float32 containing the
+                                    voltage samples normalized to half Vpp (between -1 and 1).
+        @param dict digital_samples: keys are the generic digital channel names (i.e. 'd_ch1') and
+                                     values are 1D numpy arrays of type bool containing the marker
+                                     states.
+        @param bool is_first_chunk: Flag indicating if it is the first chunk to write.
+                                    If True this method will create a new empty wavveform.
+                                    If False the samples are appended to the existing waveform.
+        @param bool is_last_chunk:  Flag indicating if it is the last chunk to write.
+                                    Some devices may need to know when to close the appending wfm.
+        @param int total_number_of_samples: The number of sample points for the entire waveform
+                                            (not only the currently written chunk)
+
+        @return (int, list): Number of samples written (-1 indicates failed process) and list of
+                             created waveform names
+        """
+        pass
+
+    def write_sequence(self, name, sequence_parameters):
+        """
+        Write a new sequence on the device memory.
+
+        @param str name: the name of the waveform to be created/append to
+        @param list sequence_parameters: List containing tuples of length 2. Each tuple represents
+                                         a sequence step. The first entry of the tuple is a list of
+                                         waveform names (str); one for each channel. The second
+                                         tuple element is a SequenceStep instance containing the
+                                         sequencing parameters for this step.
+
+        @return: int, number of sequence steps written (-1 indicates failed process)
+        """
+        pass
+
+    def get_waveform_names(self):
+        """ Retrieve the names of all uploaded waveforms on the device.
+
+        @return list: List of all uploaded waveform name strings in the device workspace.
+        """
+        return []
+
+    def get_sequence_names(self):
+        """ Retrieve the names of all uploaded sequence on the device.
+
+        @return list: List of all uploaded sequence name strings in the device workspace.
+        """
+        return []
+
+    def load_waveform(self, load_dict):
+        """ Loads a waveform to the specified channel of the pulsing device.
+        For devices that have a workspace (i.e. AWG) this will load the waveform from the device
+        workspace into the channel.
+        For a device without mass memory this will make the waveform/pattern that has been
+        previously written with self.write_waveform ready to play.
+
+        @param load_dict:  dict|list, a dictionary with keys being one of the available channel
+                                      index and values being the name of the already written
+                                      waveform to load into the channel.
+                                      Examples:   {1: rabi_ch1, 2: rabi_ch2} or
+                                                  {1: rabi_ch2, 2: rabi_ch1}
+                                      If just a list of waveform names if given, the channel
+                                      association will be invoked from the channel
+                                      suffix '_ch1', '_ch2' etc.
+
+        @return (dict, str): Dictionary with keys being the channel number and values being the
+                             respective asset loaded into the channel, string describing the asset
+                             type ('waveform' or 'sequence')
         """
         # ignore if no asset_name is given
-        if asset_name is None:
+        if load_dict is None:
             self.log.warning('"load_asset" called with asset_name = None.')
-            return 0
+            return {}
 
         # check if asset exists
-        saved_assets = self.get_saved_asset_names()
-        if asset_name not in saved_assets:
-            self.log.error('No asset with name "{0}" found for PulseStreamer.\n'
-                           '"load_asset" call ignored.'.format(asset_name))
+        saved_assets = self.get_waveform_names()
+        if load_dict not in saved_assets:
+            self.log.error('No waveform with name "{0}" found for PulseStreamer.\n'
+                                '"load_waveform" call ignored.'.format(load_dict))
             return -1
 
         # get samples from file
-        filepath = os.path.join(self.host_waveform_directory, asset_name + '.pstream')
+        filepath = os.path.join(self.host_waveform_directory, load_dict + '.pstream')
+        pulse_waveform_raw = dill.load(open(filepath, 'rb'))
+
+        pulse_waveform = []
+        for pulse in pulse_waveform_raw:
+            pulse_waveform.append(pulse_streamer_pb2.PulseMessage(ticks=pulse[0], digi=pulse[1], ao0=0, ao1=1))
+
+        blank_pulse = pulse_streamer_pb2.PulseMessage(ticks=0, digi=0, ao0=0, ao1=0)
+        laser_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=self._convert_to_bitmask([self._laser_channel]), ao0=0, ao1=0)
+        laser_and_uw_channels = self._convert_to_bitmask([self._laser_channel, self._uw_x_channel])
+        laser_and_uw_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=laser_and_uw_channels, ao0=0, ao1=0)
+        self._waveform = pulse_streamer_pb2.SequenceMessage(pulse=pulse_waveform, n_runs=0, initial=laser_on,
+            final=laser_and_uw_on, underflow=blank_pulse, start=1)
+
+        self.current_loaded_asset = load_dict, 'waveform'
+
+        return load_dict
+
+    def load_sequence(self, sequence_name):
+        """ Loads a sequence to the channels of the device in order to be ready for playback.
+        For devices that have a workspace (i.e. AWG) this will load the sequence from the device
+        workspace into the channels.
+
+        @param sequence_name:  str, name of the sequence to load
+
+        @return (dict, str): Dictionary with keys being the channel number and values being the
+                             respective asset loaded into the channel, string describing the asset
+                             type ('waveform' or 'sequence')
+        """
+
+        # ignore if no asset_name is given
+        if sequence_name is None:
+            self.log.warning('"load_asset" called with asset_name = None.')
+            return {}
+
+        # check if asset exists
+        saved_assets = self.get_sequence_names()
+        if sequence_name not in saved_assets:
+            self.log.error('No sequence with name "{0}" found for PulseStreamer.\n'
+                           '"load_sequence" call ignored.'.format(sequence_name))
+            return -1
+
+        # get samples from file
+        filepath = os.path.join(self.host_waveform_directory, sequence_name + '.pstream')
         pulse_sequence_raw = dill.load(open(filepath, 'rb'))
+        # pulse_sequence_raw = samples_write_methods._write_pstream(data)
 
         pulse_sequence = []
         for pulse in pulse_sequence_raw:
             pulse_sequence.append(pulse_streamer_pb2.PulseMessage(ticks=pulse[0], digi=pulse[1], ao0=0, ao1=1))
 
         blank_pulse = pulse_streamer_pb2.PulseMessage(ticks=0, digi=0, ao0=0, ao1=0)
-        laser_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=self._convert_to_bitmask([self._laser_channel]), ao0=0, ao1=0)
+        laser_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=self._convert_to_bitmask([self._laser_channel]), ao0=0,
+                                                   ao1=0)
         laser_and_uw_channels = self._convert_to_bitmask([self._laser_channel, self._uw_x_channel])
         laser_and_uw_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=laser_and_uw_channels, ao0=0, ao1=0)
         self._sequence = pulse_streamer_pb2.SequenceMessage(pulse=pulse_sequence, n_runs=0, initial=laser_on,
-            final=laser_and_uw_on, underflow=blank_pulse, start=1)
+                                                            final=laser_and_uw_on, underflow=blank_pulse, start=1)
+        self.current_loaded_asset = sequence_name, 'sequence'
 
-        self.current_loaded_asset = asset_name
-        return 0
+        return sequence_name
+
 
     def clear_all(self):
         """ Clears all loaded waveforms from the pulse generators RAM.
@@ -432,78 +611,6 @@ class PulseStreamer(Base, PulserInterface):
             'd_ch8': True}
         return d_ch_dict
 
-    def get_loaded_asset(self):
-        """ Retrieve the currently loaded asset name of the device.
-
-        @return str: Name of the current asset, that can be either a filename
-                     a waveform, a sequence ect.
-        """
-        return self.current_loaded_asset
-
-    def get_uploaded_asset_names(self):
-        """ Retrieve the names of all uploaded assets on the device.
-
-        @return list: List of all uploaded asset name strings in the current
-                      device directory. This is no list of the file names.
-
-        Unused for digital pulse generators without sequence storage capability
-        (PulseBlaster, FPGA).
-        """
-        names = []
-        return names
-
-    def get_saved_asset_names(self):
-        """ Retrieve the names of all sampled and saved assets on the host PC.
-        This is no list of the file names.
-
-        @return list: List of all saved asset name strings in the current
-                      directory of the host PC.
-        """
-        file_list = self._get_filenames_on_host()
-
-        saved_assets = []
-        for filename in file_list:
-            if filename.endswith('.pstream'):
-                asset_name = filename.rsplit('.', 1)[0]
-                if asset_name not in saved_assets:
-                    saved_assets.append(asset_name)
-        return saved_assets
-
-    def delete_asset(self, asset_name):
-        """ Delete all files associated with an asset with the passed asset_name from the device memory.
-
-        @param str asset_name: The name of the asset to be deleted
-                               Optionally a list of asset names can be passed.
-
-        @return int: error code (0:OK, -1:error)
-
-        Unused for digital pulse generators without sequence storage capability
-        (PulseBlaster, FPGA).
-        """
-        return 0
-
-    def set_asset_dir_on_device(self, dir_path):
-        """ Change the directory where the assets are stored on the device.
-
-        @param str dir_path: The target directory
-
-        @return int: error code (0:OK, -1:error)
-
-        Unused for digital pulse generators without changeable file structure
-        (PulseBlaster, FPGA).
-        """
-        return 0
-
-    def get_asset_dir_on_device(self):
-        """ Ask for the directory where the hardware conform files are stored on
-            the device.
-
-        @return str: The current file directory
-
-        Unused for digital pulse generators without changeable file structure
-        (PulseBlaster, FPGA).
-        """
-        return ''
 
     def get_interleave(self):
         """ Check whether Interleave is ON or OFF in AWG.
@@ -529,23 +636,6 @@ class PulseStreamer(Base, PulserInterface):
         """
         return False
 
-    def tell(self, command):
-        """ Sends a command string to the device.
-
-        @param string command: string containing the command
-
-        @return int: error code (0:OK, -1:error)
-        """
-        return 0
-
-    def ask(self, question):
-        """ Asks the device a 'question' and receive and return an answer from it.
-a
-        @param string question: string containing the command
-
-        @return string: the answer of the device to the 'question' in a string
-        """
-        return ''
 
     def reset(self):
         """ Reset the device.
@@ -557,12 +647,6 @@ a
         self.pulse_streamer.constant(laser_on)
         return 0
 
-    def has_sequence_mode(self):
-        """ Asks the pulse generator whether sequence mode exists.
-
-        @return: bool, True for yes, False for no.
-        """
-        return False
 
     def _get_dir_for_name(self, name):
         """ Get the path to the pulsed sub-directory 'name'.
@@ -575,13 +659,13 @@ a
             os.makedirs(os.path.abspath(path))
         return os.path.abspath(path)
 
-    def _get_filenames_on_host(self):
-        """ Get the full filenames of all assets saved on the host PC.
-
-        @return: list, The full filenames of all assets saved on the host PC.
-        """
-        filename_list = [f for f in os.listdir(self.host_waveform_directory) if f.endswith('.pstream')]
-        return filename_list
+#    def _get_filenames_on_host(self):
+#        """ Get the full filenames of all assets saved on the host PC.
+#
+#        @return: list, The full filenames of all assets saved on the host PC.
+#        """
+#        filename_list = [f for f in os.listdir(self.host_waveform_directory) if f.endswith('.pstream')]
+#        return filename_list
 
     def _convert_to_bitmask(self, active_channels):
         """ Convert a list of channels into a bitmask.
@@ -618,3 +702,156 @@ a
             #                   => 0b1111
             bits = bits | (1<< channel)
         return bits
+
+
+    # def upload_asset(self, asset_name=None):
+    #     """ Upload an already hardware conform file to the device.
+    #         Does NOT load it into channels.
+    #
+    #     @param name: string, name of the ensemble/seqeunce to be uploaded
+    #
+    #     @return int: error code (0:OK, -1:error)
+    #     """
+    #     self.log.debug('PulseStreamer has no own storage capability.\n"upload_asset" call ignored.')
+    #     return 0
+
+    # def load_asset(self, asset_name, load_dict=None):
+    #     """ Loads a sequence or waveform to the specified channel of the pulsing
+    #         device.
+    #
+    #     @param str asset_name: The name of the asset to be loaded
+    #
+    #     @param dict load_dict:  a dictionary with keys being one of the
+    #                             available channel numbers and items being the
+    #                             name of the already sampled
+    #                             waveform/sequence files.
+    #                             Examples:   {1: rabi_Ch1, 2: rabi_Ch2}
+    #                                         {1: rabi_Ch2, 2: rabi_Ch1}
+    #                             This parameter is optional. If none is given
+    #                             then the channel association is invoked from
+    #                             the sequence generation,
+    #                             i.e. the filename appendix (_Ch1, _Ch2 etc.)
+    #
+    #     @return int: error code (0:OK, -1:error)
+    #     """
+    #     # ignore if no asset_name is given
+    #     if asset_name is None:
+    #         self.log.warning('"load_asset" called with asset_name = None.')
+    #         return 0
+    #
+    #     # check if asset exists
+    #     saved_assets = self.get_saved_asset_names()
+    #     if asset_name not in saved_assets:
+    #         self.log.error('No asset with name "{0}" found for PulseStreamer.\n'
+    #                        '"load_asset" call ignored.'.format(asset_name))
+    #         return -1
+    #
+    #     # get samples from file
+    #     filepath = os.path.join(self.host_waveform_directory, asset_name + '.pstream')
+    #     pulse_sequence_raw = dill.load(open(filepath, 'rb'))
+    #     # pulse_sequence_raw = samples_write_methods._write_pstream(data)
+    #
+    #     pulse_sequence = []
+    #     for pulse in pulse_sequence_raw:
+    #         pulse_sequence.append(pulse_streamer_pb2.PulseMessage(ticks=pulse[0], digi=pulse[1], ao0=0, ao1=1))
+    #
+    #     blank_pulse = pulse_streamer_pb2.PulseMessage(ticks=0, digi=0, ao0=0, ao1=0)
+    #     laser_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=self._convert_to_bitmask([self._laser_channel]), ao0=0, ao1=0)
+    #     laser_and_uw_channels = self._convert_to_bitmask([self._laser_channel, self._uw_x_channel])
+    #     laser_and_uw_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=laser_and_uw_channels, ao0=0, ao1=0)
+    #     self._sequence = pulse_streamer_pb2.SequenceMessage(pulse=pulse_sequence, n_runs=0, initial=laser_on,
+    #         final=laser_and_uw_on, underflow=blank_pulse, start=1)
+    #
+    #     self.current_loaded_asset = asset_name
+    #     return 0
+
+#     def has_sequence_mode(self):
+    #     """ Asks the pulse generator whether sequence mode exists.
+    #
+    #     @return: bool, True for yes, False for no.
+    #     """
+    #     return False
+
+#     def tell(self, command):
+#         """ Sends a command string to the device.
+#
+#         @param string command: string containing the command
+#
+#         @return int: error code (0:OK, -1:error)
+#         """
+#         return 0
+#
+#     def ask(self, question):
+#         """ Asks the device a 'question' and receive and return an answer from it.
+# a
+#         @param string question: string containing the command
+#
+#         @return string: the answer of the device to the 'question' in a string
+#         """
+#         return ''
+
+
+    # def set_asset_dir_on_device(self, dir_path):
+    #     """ Change the directory where the assets are stored on the device.
+    #
+    #     @param str dir_path: The target directory
+    #
+    #     @return int: error code (0:OK, -1:error)
+    #
+    #     Unused for digital pulse generators without changeable file structure
+    #     (PulseBlaster, FPGA).
+    #     """
+    #     return 0
+
+    # def get_asset_dir_on_device(self):
+    #     """ Ask for the directory where the hardware conform files are stored on
+    #         the device.
+    #
+    #     @return str: The current file directory
+    #
+    #     Unused for digital pulse generators without changeable file structure
+    #     (PulseBlaster, FPGA).
+    #     """
+    #     return ''
+
+    # def get_uploaded_asset_names(self):
+    #     """ Retrieve the names of all uploaded assets on the device.
+    #
+    #     @return list: List of all uploaded asset name strings in the current
+    #                   device directory. This is no list of the file names.
+    #
+    #     Unused for digital pulse generators without sequence storage capability
+    #     (PulseBlaster, FPGA).
+    #     """
+    #     names = []
+    #     return names
+
+    # def get_saved_asset_names(self):
+    #     """ Retrieve the names of all sampled and saved assets on the host PC.
+    #     This is no list of the file names.
+    #
+    #     @return list: List of all saved asset name strings in the current
+    #                   directory of the host PC.
+    #     """
+    #     file_list = self._get_filenames_on_host()
+    #
+    #     saved_assets = []
+    #     for filename in file_list:
+    #         if filename.endswith('.pstream'):
+    #             asset_name = filename.rsplit('.', 1)[0]
+    #             if asset_name not in saved_assets:
+    #                 saved_assets.append(asset_name)
+    #     return saved_assets
+
+    # def delete_asset(self, asset_name):
+    #     """ Delete all files associated with an asset with the passed asset_name from the device memory.
+    #
+    #     @param str asset_name: The name of the asset to be deleted
+    #                            Optionally a list of asset names can be passed.
+    #
+    #     @return int: error code (0:OK, -1:error)
+    #
+    #     Unused for digital pulse generators without sequence storage capability
+    #     (PulseBlaster, FPGA).
+    #     """
+    #     return 0
