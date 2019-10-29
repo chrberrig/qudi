@@ -869,6 +869,7 @@ class PulseStreamer(Base, PulserInterface):
     #     """
     #     return 0
 
+
     def _load_ensemble_from_file(self, ensemble_name):
         """
         De-serializes a PulseBlockEnsemble instance from file.

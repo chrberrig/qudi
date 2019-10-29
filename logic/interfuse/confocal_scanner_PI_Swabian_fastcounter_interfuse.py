@@ -240,6 +240,8 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
             coords = line_path[:, i]
             self._scanner_hw.scanner_set_position(x=coords[0], y=coords[1], z=coords[2], a=coords[3])
             print(time.clock() - t0)
+            self._counter_hw.start_counting
+            self._counter_hw.stop_counting
             print(self._counter_hw.get_data_trace()[0])
             # print(self._counter_hw.get_data_trace()[0].sum())
             # print([type(x) for x in self._counter_hw.get_data_trace()])

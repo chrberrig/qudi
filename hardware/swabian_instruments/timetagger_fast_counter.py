@@ -43,7 +43,7 @@ class TimeTaggerFastCounter(Base, FastCounterInterface):
     _channel_sequence = ConfigOption('timetagger_channel_sequence', missing='error')
     _sum_channels = ConfigOption('timetagger_sum_channels', True, missing='warn')
 
-    ext_clk = 167e6
+#    ext_clk = 167e6
 
     def on_activate(self):
         """ Connect and configure the access to the FPGA.
