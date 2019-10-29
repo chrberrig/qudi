@@ -28,13 +28,17 @@ top-level directory of this distribution and at <https://github.com/Ulm-IQO/qudi
 from core.module import Base
 from core.configoption import ConfigOption
 from core.util.modules import get_home_dir
+from core.util.helpers import natural_sort
 from interface.pulser_interface import PulserInterface, PulserConstraints
 from collections import OrderedDict
 
+# import numpy as np
+# import time
+import pickle
 import grpc
 import os
 import hardware.swabian_instruments.pulse_streamer_pb2 as pulse_streamer_pb2
-import dill
+#import dill
 
 
 class PulseStreamer(Base, PulserInterface):
@@ -289,7 +293,13 @@ class PulseStreamer(Base, PulserInterface):
         @return (int, list): Number of samples written (-1 indicates failed process) and list of
                              created waveform names
         """
-        pass
+
+
+
+
+
+
+
 
     def write_sequence(self, name, sequence_parameters):
         """
@@ -353,8 +363,9 @@ class PulseStreamer(Base, PulserInterface):
             return -1
 
         # get samples from file
-        filepath = os.path.join(self.host_waveform_directory, load_dict + '.pstream')
-        pulse_waveform_raw = dill.load(open(filepath, 'rb'))
+        filepath = os.path.join(self.pulsed_file_dir, load_dict + '.sequen')
+        pulse_waveform_raw = pickle.load(open(filepath, 'rb'))
+
 
         pulse_waveform = []
         for pulse in pulse_waveform_raw:
@@ -396,8 +407,8 @@ class PulseStreamer(Base, PulserInterface):
             return -1
 
         # get samples from file
-        filepath = os.path.join(self.host_waveform_directory, sequence_name + '.pstream')
-        pulse_sequence_raw = dill.load(open(filepath, 'rb'))
+        filepath = os.path.join(self.pulsed_file_dir, sequence_name + '.pstream')
+        pulse_sequence_raw = pickle.load(open(filepath, 'rb'))
         # pulse_sequence_raw = samples_write_methods._write_pstream(data)
 
         pulse_sequence = []
@@ -704,6 +715,8 @@ class PulseStreamer(Base, PulserInterface):
         return bits
 
 
+
+
     # def upload_asset(self, asset_name=None):
     #     """ Upload an already hardware conform file to the device.
     #         Does NOT load it into channels.
@@ -855,3 +868,91 @@ class PulseStreamer(Base, PulserInterface):
     #     (PulseBlaster, FPGA).
     #     """
     #     return 0
+
+    def _load_ensemble_from_file(self, ensemble_name):
+        """
+        De-serializes a PulseBlockEnsemble instance from file.
+
+        @param str ensemble_name: The name of the PulseBlockEnsemble instance to de-serialize
+        @return PulseBlockEnsemble: The de-serialized PulseBlockEnsemble instance
+        """
+        ensemble = None
+        filepath = os.path.join(self.pulsed_file_dir, '{0}.ensemble'.format(ensemble_name))
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, 'rb') as file:
+                    ensemble = pickle.load(file)
+            except pickle.UnpicklingError:
+                self.log.error('Failed to de-serialize PulseBlockEnsemble "{0}" from file. '
+                               'Deleting broken file.'.format(ensemble_name))
+                os.remove(filepath)
+        return ensemble
+
+    def _load_sequence_from_file(self, sequence_name):
+        """
+        De-serializes a PulseSequence instance from file.
+
+        @param str sequence_name: The name of the PulseSequence instance to de-serialize
+        @return PulseSequence: The de-serialized PulseSequence instance
+        """
+        filepath = os.path.join(self.pulsed_file_dir, '{0}.sequence'.format(sequence_name))
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, 'rb') as file:
+                    sequence = pickle.load(file)
+                # FIXME: Due to the pickling the dict namespace merging gets lost on the way.
+                # Restored it here but a better way needs to be found.
+                for step in range(len(sequence)):
+                    sequence[step].__dict__ = sequence[step]
+            except pickle.UnpicklingError:
+                self.log.error('Failed to de-serialize PulseSequence "{0}" from file.'
+                               ''.format(sequence_name))
+                os.remove(filepath)
+                return None
+
+        # Conversion for backwards compatibility
+        if len(sequence) > 0 and not isinstance(sequence[0].flag_high, list):
+            self.log.warning('Loading deprecated PulseSequence instances from disk. '
+                             'Attempting conversion to new format.\nIf you keep getting this '
+                             'message after reloading SequenceGeneratorLogic or restarting qudi, '
+                             'please regenerate the affected PulseSequence "{0}".'
+                             ''.format(sequence_name))
+            for step_no, step_params in enumerate(sequence):
+                # Try to convert "flag_high" step parameter
+                if isinstance(step_params.flag_high, str):
+                    if step_params.flag_high.upper() == 'OFF':
+                        sequence[step_no].flag_high = list()
+                    else:
+                        sequence[step_no].flag_high = [step_params.flag_high]
+                elif isinstance(step_params.flag_high, dict):
+                    sequence[step_no].flag_high = [flag for flag, state in
+                                                   step_params.flag_high.items() if state]
+                else:
+                    self.log.error('Failed to de-serialize PulseSequence "{0}" from file.'
+                                   '"flag_high" step parameter is of unknown type'
+                                   ''.format(sequence_name))
+                    os.remove(filepath)
+                    return None
+
+                # Try to convert "flag_trigger" step parameter
+                if isinstance(step_params.flag_trigger, str):
+                    if step_params.flag_trigger.upper() == 'OFF':
+                        sequence[step_no].flag_trigger = list()
+                    else:
+                        sequence[step_no].flag_trigger = [step_params.flag_trigger]
+                elif isinstance(step_params.flag_trigger, dict):
+                    sequence[step_no].flag_trigger = [flag for flag, state in
+                                                      step_params.flag_trigger.items() if state]
+                else:
+                    self.log.error('Failed to de-serialize PulseSequence "{0}" from file.'
+                                   '"flag_trigger" step parameter is of unknown type'
+                                   ''.format(sequence_name))
+                    os.remove(filepath)
+                    return None
+            self._save_sequence_to_file(sequence)
+        return sequence
+
+    def cat_ens_to_psseq(self, ens_name):
+        ens = self._load_ensemble_from_file(ens_name)
+        for block ,rep in ens.block_list:
+            for i in range(rep):
