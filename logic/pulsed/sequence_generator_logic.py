@@ -312,23 +312,19 @@ class SequenceGeneratorLogic(GenericLogic):
         asset_names, asset_type = self.pulsegenerator().get_loaded_assets()
         name_list = list(asset_names.values())
         if asset_type == 'waveform' and len(name_list) > 0:
-            print('hey')
             return_type = 'PulseBlockEnsemble'
             return_name = name_list[0].rsplit('_', 1)[0]
             for name in name_list:
                 if name.rsplit('_', 1)[0] != return_name:
                     return '', ''
         elif asset_type == 'sequence' and len(name_list) > 0:
-            print('ho')
             return_type = 'PulseSequence'
             return_name = name_list[0].rsplit('_', 1)[0]
             for name in name_list:
                 if name.rsplit('_', 1)[0] != return_name:
                     return '', ''
         else:
-            print('hi')
             return '', ''
-        print('yo')
         return return_name, return_type
 
     @QtCore.Slot(dict)
