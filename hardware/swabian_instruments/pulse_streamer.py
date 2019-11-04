@@ -283,7 +283,7 @@ class PulseStreamer(Base, PulserInterface):
                                      values are 1D numpy arrays of type bool containing the marker
                                      states.
         @param bool is_first_chunk: Flag indicating if it is the first chunk to write.
-                                    If True this method will create a new empty wavveform.
+                                    If True this method will create a new empty waveform.
                                     If False the samples are appended to the existing waveform.
         @param bool is_last_chunk:  Flag indicating if it is the last chunk to write.
                                     Some devices may need to know when to close the appending wfm.
@@ -293,6 +293,8 @@ class PulseStreamer(Base, PulserInterface):
         @return (int, list): Number of samples written (-1 indicates failed process) and list of
                              created waveform names
         """
+        #TODO make a print statement in pulsesequencegeneration logic module to see what kind of object is expected as input.
+        #TODO Also, what are these markerstates that is talked about in the doc-string?
 
     def write_sequence(self, name, sequence_parameters):
         """
@@ -908,30 +910,43 @@ class PulseStreamer(Base, PulserInterface):
                             Values list:    list of tuples containing the states which are to be sent to pulsestreamer.
                                                 Tuples consists of: (duration_time(ns) , digi_state(0/1))
         """
-        #TODO debug this!!
+        #TODO need to do rounding of duration lengths correct... still problems regarding sequences...
         chnl_dict = {}
         for chnl_name in list(self.get_active_channels()):
+            #initializasion:
             chnl_seq = []
-            for index in range(len(msg_list[:-1])):
-                duration = 0
-                if msg_list[index].digital_high[chnl_name] == msg_list[index + 1].digital_high[chnl_name]:
-                    duration += msg_list[index].init_length_s
+            duration = msg_list[0].init_length_s
+            #iterate over all but 0'th index, and compare boolean w. previous value:
+            for index in range(1, len(msg_list)):
+                if msg_list[index].digital_high[chnl_name] != msg_list[index - 1].digital_high[chnl_name]:
+                    chnl_seq.append((int(round(duration, 9) * 1e9), msg_list[index - 1].digital_high[chnl_name]))
+                    duration = msg_list[index].init_length_s
                 else:
-                    if msg_list[index].digital_high[chnl_name]:
-                        chnl_seq.append((duration, 1))
-                    else:
-                        chnl_seq.append((duration, 0))
-            chnl_dict[chnl_name] = chnl_seq
+                    duration = duration + msg_list[index].init_length_s
+                if index == (len(msg_list)-1):
+                    chnl_seq.append((int(round(duration, 9) * 1e9), msg_list[index].digital_high[chnl_name])) # time in units ns
+#                    chnl_seq.append((round(duration, 9), msg_list[index].digital_high[chnl_name])) # time in units s
+            # cleaning up...
+            if (len(chnl_seq) > 1) or ((len(chnl_seq) == 1) and chnl_seq[0][1]):
+                chnl_dict[chnl_name] = chnl_seq
+            # do rounding correction here instead of inside body of function?
         return chnl_dict
 
     def _ens_to_ps_sequences(self, ens):
-        self._msg_list_to_ps_sequences(self._block_list_to_msg_list(self._ens_to_block_list(ens)))
+        return self._msg_list_to_ps_sequences(self._block_list_to_msg_list(self._ens_to_block_list(ens)))
 
     def _seq_to_ps_sequences(self, seq):
-        self._msg_list_to_ps_sequences(self._block_list_to_msg_list(self._seq_to_block_list(seq)))
+        return self._msg_list_to_ps_sequences(self._block_list_to_msg_list(self._seq_to_block_list(seq)))
 
 
 
+
+
+
+
+#        # cleaning up...
+#        if (len(chnl_dict[chnl_name]) == 1) and (chnl_dict[chnl_name][0][1] == False):
+#            del chnl_dict[chnl_name]
 
 
 
