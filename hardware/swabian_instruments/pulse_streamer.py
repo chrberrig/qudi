@@ -168,42 +168,6 @@ class PulseStreamer(Base, PulserInterface):
 
         return constraints
 
-        # # The file formats are hardware specific.
-        # constraints['waveform_format'] = 'pstream'
-        # constraints['sequence_format'] = None
-        #
-        # constraints['sample_rate'] = {
-        #     'min': 1e9,
-        #     'max': 1e9,
-        #     'step': 0,
-        #     'default': 1e9}
-        # constraints['d_ch_low'] = {
-        #     'min': 0.0,
-        #     'max': 0.0,
-        #     'step': 0.0,
-        #     'default': 0.0}
-        # constraints['d_ch_high'] = {
-        #     'min': 3.3,
-        #     'max': 3.3,
-        #     'step': 0.0,
-        #     'default': 3.3}
-        # # sample file length max is not well-defined for PulseStreamer, which collates sequential identical pulses into
-        # # one. Total number of not-sequentially-identical pulses which can be stored: 1 M.
-        # constraints['waveform_length'] = {
-        #     'min': 1,
-        #     'max': 134217728,
-        #     'step': 1,
-        #     'default': 1}
-        #
-        # # the name a_ch<num> and d_ch<num> are generic names, which describe UNAMBIGUOUSLY the
-        # # channels. Here all possible channel configurations are stated, where only the generic
-        # # names should be used. The names for the different configurations can be customary chosen.
-        # activation_config = OrderedDict()
-        # activation_config['all'] = ['d_ch1', 'd_ch2', 'd_ch3', 'd_ch4', 'd_ch5', 'd_ch6', 'd_ch7',
-        #                             'd_ch8']
-        # constraints['activation_config'] = activation_config
-        # return constraints
-
 
     def pulser_on(self):
         """ Switches the pulsing device on.
@@ -317,6 +281,9 @@ class PulseStreamer(Base, PulserInterface):
                                'pulser.')
                 return -1, waveforms
 
+        print(name)
+        print(digital_samples)
+
         msgs = []
         chnl_states = []
         chnl_states_new = []
@@ -346,7 +313,17 @@ class PulseStreamer(Base, PulserInterface):
                     msgs.append(pulse_streamer_pb2.PulseMessage(ticks=duration,
                                                                 digi=self._convert_to_bitmask(chnl_on_list),
                                                                 ao0=0, ao1=0))
-#        print('waveforms: ' + str(waveforms))
+
+        blank_pulse = pulse_streamer_pb2.PulseMessage(ticks=0, digi=0, ao0=0, ao1=0)
+        laser_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=self._convert_to_bitmask([self._laser_channel]), ao0=0, ao1=0)
+        laser_and_uw_channels = self._convert_to_bitmask([self._laser_channel, self._uw_x_channel])
+        laser_and_uw_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=laser_and_uw_channels, ao0=0, ao1=0)
+
+        self.ps_sequence = pulse_streamer_pb2.SequenceMessage(pulse=msgs, n_runs=0, initial=laser_on,
+                                                                final=laser_and_uw_on, underflow=blank_pulse, start=1)
+
+#         print('waveforms: ' + str(waveforms))
+#         print(digital_samples.items())
         for chnl, samples in digital_samples.items():
             waveforms.append(name + chnl[1:])
 #             if True in samples:
@@ -361,7 +338,7 @@ class PulseStreamer(Base, PulserInterface):
 #        self._waveform = pulse_streamer_pb2.SequenceMessage(pulse=pulse_waveform, n_runs=0, initial=laser_on,
 #                                                            final=laser_and_uw_on, underflow=blank_pulse, start=1)
 
-
+#       make list of loaded waveform in pulse streamer format to help load them into ps from write_sequence
 
     def write_sequence(self, name, sequence_parameters):
         """
@@ -376,10 +353,66 @@ class PulseStreamer(Base, PulserInterface):
 
         @return: int, number of sequence steps written (-1 indicates failed process)
         """
-        print(name, sequence_parameters)
+        print("name: " + str(name))
+        print("sequence_parameters: " + str(sequence_parameters))
+
+        for channels, dict in sequence_parameters:
+            ensemble = dict['ensemble']
+            reps = dict['repetitions']
+            for i in range(reps + 1):
+                print('ensemble: ' + str(ensemble)) # write wave form to ps
+
+
+        # name: dummy_seq
+        # sequence_parameters: [(('dummy_ens_ch1', 'dummy_ens_ch2', 'dummy_ens_ch3', 'dummy_ens_ch4', 'dummy_ens_ch5',
+        #                         'dummy_ens_ch6', 'dummy_ens_ch7', 'dummy_ens_ch8'),
+        #                        {'ensemble': 'dummy_ens', 'repetitions': 1, 'go_to': -1, 'event_jump_to': -1,
+        #                         'event_trigger': 'OFF', 'wait_for': 'OFF', 'flag_trigger': [], 'flag_high': []}), ((
+        #                                                                                                            'dummy_ens_ch1',
+        #                                                                                                            'dummy_ens_ch2',
+        #                                                                                                            'dummy_ens_ch3',
+        #                                                                                                            'dummy_ens_ch4',
+        #                                                                                                            'dummy_ens_ch5',
+        #                                                                                                            'dummy_ens_ch6',
+        #                                                                                                            'dummy_ens_ch7',
+        #                                                                                                            'dummy_ens_ch8'),
+        #                                                                                                            {
+        #                                                                                                                'ensemble': 'dummy_ens',
+        #                                                                                                                'repetitions': 0,
+        #                                                                                                                'go_to': -1,
+        #                                                                                                                'event_jump_to': -1,
+        #                                                                                                                'event_trigger': 'OFF',
+        #                                                                                                                'wait_for': 'OFF',
+        #                                                                                                                'flag_trigger': [],
+        #                                                                                                                'flag_high': []})]
+
+
+        # name: dummy_2_seq
+        # sequence_parameters: [(('dummy_2_ens_ch1', 'dummy_2_ens_ch2', 'dummy_2_ens_ch3', 'dummy_2_ens_ch4',
+        #                         'dummy_2_ens_ch5', 'dummy_2_ens_ch6', 'dummy_2_ens_ch7', 'dummy_2_ens_ch8'),
+        #                        {'ensemble': 'dummy_2_ens', 'repetitions': 0, 'go_to': -1, 'event_jump_to': -1,
+        #                         'event_trigger': 'OFF', 'wait_for': 'OFF', 'flag_trigger': [], 'flag_high': []}), ((
+        #                                                                                                            'dummy_ens_ch1',
+        #                                                                                                            'dummy_ens_ch2',
+        #                                                                                                            'dummy_ens_ch3',
+        #                                                                                                            'dummy_ens_ch4',
+        #                                                                                                            'dummy_ens_ch5',
+        #                                                                                                            'dummy_ens_ch6',
+        #                                                                                                            'dummy_ens_ch7',
+        #                                                                                                            'dummy_ens_ch8'),
+        #                                                                                                            {
+        #                                                                                                                'ensemble': 'dummy_ens',
+        #                                                                                                                'repetitions': 0,
+        #                                                                                                                'go_to': -1,
+        #                                                                                                                'event_jump_to': -1,
+        #                                                                                                                'event_trigger': 'OFF',
+        #                                                                                                                'wait_for': 'OFF',
+        #                                                                                                                'flag_trigger': [],
+        #                                                                                                                'flag_high': []})]
+
 
         # self.loaded_waveforms.append(name)
-
+        return len(sequence_parameters)
 
     def get_waveform_names(self):
         """ Retrieve the names of all uploaded waveforms on the device.
@@ -392,7 +425,9 @@ class PulseStreamer(Base, PulserInterface):
             for key, val in dict.items():
                 return [val]
         elif format == 'sequence':
-            pass# get waveforms in sequence
+            print(self.current_loaded_asset) # for key, val in dict.items():
+        else:
+            return []
 
 #         mydummypulser.get_waveform_names()
 #         Out[19]:
@@ -421,9 +456,12 @@ class PulseStreamer(Base, PulserInterface):
 
         #TODO: not entirely right...i guess...
         dict, format = self.current_loaded_asset
+        # print(self.current_loaded_asset)
         if format == 'sequence':
             for key, val in dict.items():
                 return [val]
+        else:
+            return []
 
 #     mydummypulser.get_sequence_names()
 #     Out[20]: ['dummy_2_seq', 'dummy_seq']
@@ -838,7 +876,7 @@ class PulseStreamer(Base, PulserInterface):
         seq = []
         state = [array[0]]
         for ind, i in enumerate(array[1:]):
-            print(ind, len(array[1:]))
+            # print(ind, len(array[1:]))
             if i == state[-1]:
                 state.append(i)
             else:
