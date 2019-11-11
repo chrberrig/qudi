@@ -90,9 +90,9 @@ class PulserDummy(Base, PulserInterface):
                                'd_ch5': False, 'd_ch6': False, 'd_ch7': False, 'd_ch8': False}
 
         if self.activation_config is None:
-            self.activation_config = self.get_constraints().activation_config['config0']
+            self.activation_config = self.get_constraints().activation_config['config5']
         elif self.activation_config not in self.get_constraints().activation_config.values():
-            self.activation_config = self.get_constraints().activation_config['config0']
+            self.activation_config = self.get_constraints().activation_config['config5']
 
         for chnl in self.activation_config:
             self.channel_states[chnl] = True
@@ -316,9 +316,11 @@ class PulserDummy(Base, PulserInterface):
         self.waveform_set.update(waveforms)
 
         self.log.info('Waveforms with nametag "{0}" directly written on dummy pulser.'.format(name))
+        # print(number_of_samples, waveforms)
         return number_of_samples, waveforms
 
     def write_sequence(self, name, sequence_parameter_list):
+        print(name, sequence_parameter_list)
         """
         Write a new sequence on the device memory.
 

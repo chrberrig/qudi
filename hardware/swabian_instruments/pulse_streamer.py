@@ -32,7 +32,7 @@ from core.util.helpers import natural_sort
 from interface.pulser_interface import PulserInterface, PulserConstraints
 from collections import OrderedDict
 
-# import numpy as np
+import numpy as np
 # import time
 import pickle
 import grpc
@@ -85,6 +85,7 @@ class PulseStreamer(Base, PulserInterface):
 
         self.current_status = -1
         self.sample_rate = 1e9
+        self.loaded_waveforms = []
         self.current_loaded_asset = {}, None
 
         self._channel = grpc.insecure_channel(self._pulsestreamer_ip + ':50051')
@@ -129,9 +130,8 @@ class PulseStreamer(Base, PulserInterface):
         """
         constraints = PulserConstraints()
 
-
-        constraints.waveform_format = ['pstream']
-        constraints.sequence_format = []
+        # constraints.waveform_format = ['pstream']
+        # constraints.sequence_format = []
 
         constraints.sample_rate.min = 1e9
         constraints.sample_rate.max = 1e9
@@ -293,8 +293,75 @@ class PulseStreamer(Base, PulserInterface):
         @return (int, list): Number of samples written (-1 indicates failed process) and list of
                              created waveform names
         """
-        #TODO make a print statement in pulsesequencegeneration logic module to see what kind of object is expected as input.
-        #TODO Also, what are these markerstates that is talked about in the doc-string?
+
+        waveforms = list()
+
+        # Sanity checks
+        if len(analog_samples) > 0:
+            number_of_samples = len(analog_samples[list(analog_samples)[0]])
+        elif len(digital_samples) > 0:
+            number_of_samples = len(digital_samples[list(digital_samples)[0]])
+        else:
+            self.log.error('No analog or digital samples passed to write_waveform method in dummy '
+                           'pulser.')
+            return -1, waveforms
+
+        for chnl, samples in analog_samples.items():
+            if len(samples) != number_of_samples:
+                self.log.error('Unequal length of sample arrays for different channels in dummy '
+                               'pulser.')
+                return -1, waveforms
+        for chnl, samples in digital_samples.items():
+            if len(samples) != number_of_samples:
+                self.log.error('Unequal length of sample arrays for different channels in dummy '
+                               'pulser.')
+                return -1, waveforms
+
+        msgs = []
+        chnl_states = []
+        chnl_states_new = []
+        chnl_on_list = []
+        duration = 0
+        for i in range(total_number_of_samples):
+            duration = duration + 1
+            diff = False
+            for j in range(1, 9):
+                key = 'd_ch' + str(j)
+                if i == 0:
+                    chnl_states.append(digital_samples[key][i])
+                elif digital_samples[key][i] != digital_samples[key][i-1]:
+                    diff = True
+                    chnl_states_new.append(digital_samples[key][i])
+                    if j == 8 and diff:
+                        #update list of channelnumbers, where channel state is on/"True"
+                        for num, state in enumerate(chnl_states):
+                            if state:
+                                chnl_on_list.append(num)
+                        msgs.append(pulse_streamer_pb2.PulseMessage(ticks=duration,
+                                                                    digi=self._convert_to_bitmask(chnl_on_list),
+                                                                    ao0=0, ao1=0))
+                        duration = 0
+                        chnl_states = chnl_states_new
+                if i == total_number_of_samples - 1:
+                    msgs.append(pulse_streamer_pb2.PulseMessage(ticks=duration,
+                                                                digi=self._convert_to_bitmask(chnl_on_list),
+                                                                ao0=0, ao1=0))
+#        print('waveforms: ' + str(waveforms))
+        for chnl, samples in digital_samples.items():
+            waveforms.append(name + chnl[1:])
+#             if True in samples:
+#                 waveforms.append(name + chnl[1:])
+            self.loaded_waveforms.append(name)
+        return number_of_samples, waveforms
+
+#        pulse_waveform = []
+#        for pulse in pulse_waveform_raw:
+#            pulse_waveform.append(pulse_streamer_pb2.PulseMessage(ticks=pulse[0], digi=pulse[1], ao0=0, ao1=1))
+#
+#        self._waveform = pulse_streamer_pb2.SequenceMessage(pulse=pulse_waveform, n_runs=0, initial=laser_on,
+#                                                            final=laser_and_uw_on, underflow=blank_pulse, start=1)
+
+
 
     def write_sequence(self, name, sequence_parameters):
         """
@@ -309,21 +376,57 @@ class PulseStreamer(Base, PulserInterface):
 
         @return: int, number of sequence steps written (-1 indicates failed process)
         """
-        pass
+        print(name, sequence_parameters)
+
+        # self.loaded_waveforms.append(name)
+
 
     def get_waveform_names(self):
         """ Retrieve the names of all uploaded waveforms on the device.
 
         @return list: List of all uploaded waveform name strings in the device workspace.
         """
-        return []
+
+        dict, format = self.current_loaded_asset
+        if format == 'waveform':
+            for key, val in dict.items():
+                return [val]
+        elif format == 'sequence':
+            pass# get waveforms in sequence
+
+#         mydummypulser.get_waveform_names()
+#         Out[19]:
+#         ['dummy_ens_ch5',
+#          'dummy_ens_ch3',
+#          'dummy_2_ens_ch2',
+#          'dummy_ens_ch7',
+#          'dummy_2_ens_ch1',
+#          'dummy_2_ens_ch3',
+#          'dummy_ens_ch4',
+#          'dummy_2_ens_ch5',
+#          'dummy_2_ens_ch6',
+#          'dummy_2_ens_ch4',
+#          'dummy_ens_ch6',
+#          'dummy_2_ens_ch7',
+#          'dummy_ens_ch1',
+#          'dummy_2_ens_ch8',
+#          'dummy_ens_ch8',
+#          'dummy_ens_ch2']
 
     def get_sequence_names(self):
         """ Retrieve the names of all uploaded sequence on the device.
 
         @return list: List of all uploaded sequence name strings in the device workspace.
         """
-        return []
+
+        #TODO: not entirely right...i guess...
+        dict, format = self.current_loaded_asset
+        if format == 'sequence':
+            for key, val in dict.items():
+                return [val]
+
+#     mydummypulser.get_sequence_names()
+#     Out[20]: ['dummy_2_seq', 'dummy_seq']
 
     def load_waveform(self, load_dict):
         """ Loads a waveform to the specified channel of the pulsing device.
@@ -419,6 +522,20 @@ class PulseStreamer(Base, PulserInterface):
         self.current_loaded_asset = sequence_name, 'sequence'
 
         return sequence_name
+
+#     sequencegeneratorlogic.sample_pulse_sequence('dummy_seq')
+#     dummy_seq[(('dummy_ens_ch1', 'dummy_ens_ch2', 'dummy_ens_ch3', 'dummy_ens_ch4', 'dummy_ens_ch5', 'dummy_ens_ch6',
+#                 'dummy_ens_ch7', 'dummy_ens_ch8'),
+#                {'ensemble': 'dummy_ens', 'repetitions': 1, 'go_to': -1, 'event_jump_to': -1, 'event_trigger': 'OFF',
+#                 'wait_for': 'OFF', 'flag_trigger': [], 'flag_high': []}), (('dummy_ens_ch1', 'dummy_ens_ch2',
+#                                                                             'dummy_ens_ch3', 'dummy_ens_ch4',
+#                                                                             'dummy_ens_ch5', 'dummy_ens_ch6',
+#                                                                             'dummy_ens_ch7', 'dummy_ens_ch8'),
+#                                                                            {'ensemble': 'dummy_ens', 'repetitions': 0,
+#                                                                             'go_to': -1, 'event_jump_to': -1,
+#                                                                             'event_trigger': 'OFF', 'wait_for': 'OFF',
+#                                                                             'flag_trigger': [], 'flag_high': []})]
+
 
     def clear_all(self):
         """ Clears all loaded waveforms from the pulse generators RAM.
@@ -699,113 +816,6 @@ class PulseStreamer(Base, PulserInterface):
             bits = bits | (1<< channel)
         return bits
 
-
-    def _load_block_from_file(self, block_name):
-        """
-        De-serializes a PulseBlock instance from file.
-
-        @param str block_name: The name of the PulseBlock instance to de-serialize
-        @return PulseBlock: The de-serialized PulseBlock instance
-        """
-        block = None
-        filepath = os.path.join(self.pulsed_file_dir, '{0}.block'.format(block_name))
-        if os.path.exists(filepath):
-            try:
-                with open(filepath, 'rb') as file:
-                    block = pickle.load(file)
-            except pickle.UnpicklingError:
-                self.log.error('Failed to de-serialize PulseBlock "{0}" from file.'
-                               ''.format(block_name))
-                os.remove(filepath)
-            except ModuleNotFoundError:
-                self.log.error('Failed to de-serialize PulseBlock "{0}" from file because of missing dependencies.\n'
-                               'For better debugging I dumped the traceback to debug.'.format(block_name))
-                # self.log.debug('{0!s}'.format(traceback.format_exc()))
-        return block
-
-    def _load_ensemble_from_file(self, ensemble_name):
-        """
-        De-serializes a PulseBlockEnsemble instance from file.
-
-        @param str ensemble_name: The name of the PulseBlockEnsemble instance to de-serialize
-        @return PulseBlockEnsemble: The de-serialized PulseBlockEnsemble instance
-        """
-        ensemble = None
-        filepath = os.path.join(self.pulsed_file_dir, '{0}.ensemble'.format(ensemble_name))
-        if os.path.exists(filepath):
-            try:
-                with open(filepath, 'rb') as file:
-                    ensemble = pickle.load(file)
-            except pickle.UnpicklingError:
-                self.log.error('Failed to de-serialize PulseBlockEnsemble "{0}" from file. '
-                               'Deleting broken file.'.format(ensemble_name))
-                os.remove(filepath)
-        return ensemble
-
-    def _load_sequence_from_file(self, sequence_name):
-        """
-        De-serializes a PulseSequence instance from file.
-
-        @param str sequence_name: The name of the PulseSequence instance to de-serialize
-        @return PulseSequence: The de-serialized PulseSequence instance
-        """
-        filepath = os.path.join(self.pulsed_file_dir, '{0}.sequence'.format(sequence_name))
-        if os.path.exists(filepath):
-            try:
-                with open(filepath, 'rb') as file:
-                    sequence = pickle.load(file)
-                # FIXME: Due to the pickling the dict namespace merging gets lost on the way.
-                # Restored it here but a better way needs to be found.
-                for step in range(len(sequence)):
-                    sequence[step].__dict__ = sequence[step]
-            except pickle.UnpicklingError:
-                self.log.error('Failed to de-serialize PulseSequence "{0}" from file.'
-                               ''.format(sequence_name))
-                os.remove(filepath)
-                return None
-
-        # Conversion for backwards compatibility
-        if len(sequence) > 0 and not isinstance(sequence[0].flag_high, list):
-            self.log.warning('Loading deprecated PulseSequence instances from disk. '
-                             'Attempting conversion to new format.\nIf you keep getting this '
-                             'message after reloading SequenceGeneratorLogic or restarting qudi, '
-                             'please regenerate the affected PulseSequence "{0}".'
-                             ''.format(sequence_name))
-            for step_no, step_params in enumerate(sequence):
-                # Try to convert "flag_high" step parameter
-                if isinstance(step_params.flag_high, str):
-                    if step_params.flag_high.upper() == 'OFF':
-                        sequence[step_no].flag_high = list()
-                    else:
-                        sequence[step_no].flag_high = [step_params.flag_high]
-                elif isinstance(step_params.flag_high, dict):
-                    sequence[step_no].flag_high = [flag for flag, state in
-                                                   step_params.flag_high.items() if state]
-                else:
-                    self.log.error('Failed to de-serialize PulseSequence "{0}" from file.'
-                                   '"flag_high" step parameter is of unknown type'
-                                   ''.format(sequence_name))
-                    os.remove(filepath)
-                    return None
-
-                # Try to convert "flag_trigger" step parameter
-                if isinstance(step_params.flag_trigger, str):
-                    if step_params.flag_trigger.upper() == 'OFF':
-                        sequence[step_no].flag_trigger = list()
-                    else:
-                        sequence[step_no].flag_trigger = [step_params.flag_trigger]
-                elif isinstance(step_params.flag_trigger, dict):
-                    sequence[step_no].flag_trigger = [flag for flag, state in
-                                                      step_params.flag_trigger.items() if state]
-                else:
-                    self.log.error('Failed to de-serialize PulseSequence "{0}" from file.'
-                                   '"flag_trigger" step parameter is of unknown type'
-                                   ''.format(sequence_name))
-                    os.remove(filepath)
-                    return None
-            self._save_sequence_to_file(sequence)
-        return sequence
-
     def _channel_to_index(self,ch):
         """
         Inputs channel string and outputs corresponding channel index integer
@@ -823,146 +833,20 @@ class PulseStreamer(Base, PulserInterface):
         else:
             self.log.error('Channel not given or ill-defined')
 
-    def _seq_to_block_list(self, seq):
-        """
-        Make sequence (from file) into list of blocknames
 
-        @param str seq: name of sequence.
-        @return list str: list of strings corresponding to names of blocks in the ensembles that the sequence is made of.
-        """
-        block_list = []
-        seq = self._load_sequence_from_file(seq)
-        for ens in seq.ensemble_list:
-            for i in range(ens['repetitions'] + 1):
-                for block in self._ens_to_block_list(ens['ensemble']):
-                    block_list.append(block)
-        return block_list
-
-    def _ens_to_block_list(self, ens):
-        """
-        Make ensemble (from file) into list of blocknames
-
-        @param str ens: name of ensemble.
-        @return list str: list of strings corresponding to names of blocks in the ensemble.
-        """
-        block_list = []
-        ens = self._load_ensemble_from_file(ens)
-        for block, rep in ens.block_list:
-            for i in range(rep + 1):
-                block_list.append(block)
-        return block_list
-
-    def _block_list_to_msg_list(self, block_list):
-        """
-        Converts list of blocknames to list of elements that the blocks are constituted of.
-
-        @param list str block_list: list of strings corresponding to names of blocks to load.
-        @return list PulseBlockElement: list of elements of type "PulseBlockElements" (internal to qudi)
-        """
-        msg_list = []
-        for item in block_list:
-            block = self._load_block_from_file(item)
-            for elem in block.element_list:
-                msg_list.append(elem)
-        return msg_list
-
-    def _msg_list_to_ps_msg_list(self, msg_list):
-        """
-        Converts list of PulseBlockElements to list of PulseMessage methods.
-
-        @param list PulseBlockElement msg_list: list of PulseBlockElements to be converted
-        @return PulseMessage: list of PulseMessages
-        """
-        return [self._msg_to_ps_msg(elem) for elem in msg_list]
-#        ps_list = []
-#        for elem in msg_list:
-#            # print(self._msg_to_ps_msg(elem))
-#            ps_list.append(self._msg_to_ps_msg(elem))
-#        return ps_list
-
-    def _msg_to_ps_msg(self, elem):
-        """
-        Converts list of PulseBlockElements to list of PulseMessage methods.
-
-        @param PulseBlockElement elem: PulseBlockElement to be converted
-        @return PulseMessage: PulseMessage to be read into PulseStreamer
-        """
-        num_ticks = int(elem.init_length_s * 1e9)
-        digi_chnls = []
-        for key, value in elem.digital_high.items():
-            if value:
-                digi_chnls.append(self._channel_to_index(key))
-        digi_chnls = self._convert_to_bitmask(digi_chnls)
-        return pulse_streamer_pb2.PulseMessage(ticks=num_ticks, digi=digi_chnls, ao0=0, ao1=0)
-
-    def _seq_to_ps_msg_list(self, seq):
-        return self._msg_list_to_ps_msg_list(self._block_list_to_msg_list(self._seq_to_block_list(seq)))
-
-    def _ens_to_ps_msg_list(self, ens):
-        return self._msg_list_to_ps_msg_list(self._block_list_to_msg_list(self._ens_to_block_list(ens)))
-
-    def _msg_list_to_ps_sequences(self, msg_list):
-        """
-
-        @param list msg_list: list of messages to be translated to the sequences that are PulseStreamer compliant.
-        @return dict: Dictionary containing:
-                            Keys str:       strings containing generic channel names
-                            Values list:    list of tuples containing the states which are to be sent to pulsestreamer.
-                                                Tuples consists of: (duration_time(ns) , digi_state(0/1))
-        """
-        #TODO need to do rounding of duration lengths correct... still problems regarding sequences...
-        chnl_dict = {}
-        for chnl_name in list(self.get_active_channels()):
-            #initializasion:
-            chnl_seq = []
-            duration = msg_list[0].init_length_s
-            #iterate over all but 0'th index, and compare boolean w. previous value:
-            for index in range(1, len(msg_list)):
-                if msg_list[index].digital_high[chnl_name] != msg_list[index - 1].digital_high[chnl_name]:
-                    chnl_seq.append((int(round(duration, 9) * 1e9), msg_list[index - 1].digital_high[chnl_name]))
-                    duration = msg_list[index].init_length_s
-                else:
-                    duration = duration + msg_list[index].init_length_s
-                if index == (len(msg_list)-1):
-                    chnl_seq.append((int(round(duration, 9) * 1e9), msg_list[index].digital_high[chnl_name])) # time in units ns
-#                    chnl_seq.append((round(duration, 9), msg_list[index].digital_high[chnl_name])) # time in units s
-            # cleaning up...
-            if (len(chnl_seq) > 1) or ((len(chnl_seq) == 1) and chnl_seq[0][1]):
-                chnl_dict[chnl_name] = chnl_seq
-            # do rounding correction here instead of inside body of function?
-        return chnl_dict
-
-    def _ens_to_ps_sequences(self, ens):
-        return self._msg_list_to_ps_sequences(self._block_list_to_msg_list(self._ens_to_block_list(ens)))
-
-    def _seq_to_ps_sequences(self, seq):
-        return self._msg_list_to_ps_sequences(self._block_list_to_msg_list(self._seq_to_block_list(seq)))
-
-
-
-
-
-
-
-#        # cleaning up...
-#        if (len(chnl_dict[chnl_name]) == 1) and (chnl_dict[chnl_name][0][1] == False):
-#            del chnl_dict[chnl_name]
-
-
-
-
-
-#    def _msg_list_to_ps_msg_list(self, msg_list):
-#        ps_list = []
-#        for elem in msg_list:
-#            num_ticks = elem.init_length_s *1e9
-#            digi_chnls = []
-#            for key, value in elem.digital_high
-#                if value = True:
-#                    digi_chnls.append(_channel_to_index(key))
-#            digi_chnls.sort()
-#            ps_list.append(pulse_streamer_pb2.PulseMessage(ticks=num_ticks, digi=digi_chnls, ao0=0, ao1=0))
-#        return ps_list
+    def _array_to_ps_sequence(self, array):
+        seq = []
+        state = [array[0]]
+        for ind, i in enumerate(array[1:]):
+            print(ind, len(array[1:]))
+            if i == state[-1]:
+                state.append(i)
+            else:
+                seq.append((len(state), state[0]))
+                state = [i]
+            if ind == len(array[1:]) - 1:
+                seq.append((len(state), state[0]))
+        return seq
 
 
 
@@ -974,15 +858,270 @@ class PulseStreamer(Base, PulserInterface):
 
 
 
-#    def _cat_ens_to_psseq(self, ens_name):
-#        psseq = None
-#        ens = self._load_ensemble_from_file(ens_name)
-#        for block ,rep in ens.block_list:
-#            for i in range(rep):
-#                self._append_block(psseq,block)
-#        return psseq
+
+
+
+
+
+
+
+
+
+# ====== unused functions ======
 #
-#    def _cat_blocks_to
+#     def _load_block_from_file(self, block_name):
+#         """
+#         De-serializes a PulseBlock instance from file.
+#
+#         @param str block_name: The name of the PulseBlock instance to de-serialize
+#         @return PulseBlock: The de-serialized PulseBlock instance
+#         """
+#         block = None
+#         filepath = os.path.join(self.pulsed_file_dir, '{0}.block'.format(block_name))
+#         if os.path.exists(filepath):
+#             try:
+#                 with open(filepath, 'rb') as file:
+#                     block = pickle.load(file)
+#             except pickle.UnpicklingError:
+#                 self.log.error('Failed to de-serialize PulseBlock "{0}" from file.'
+#                                ''.format(block_name))
+#                 os.remove(filepath)
+#             except ModuleNotFoundError:
+#                 self.log.error('Failed to de-serialize PulseBlock "{0}" from file because of missing dependencies.\n'
+#                                'For better debugging I dumped the traceback to debug.'.format(block_name))
+#                 # self.log.debug('{0!s}'.format(traceback.format_exc()))
+#         return block
+#
+#     def _load_ensemble_from_file(self, ensemble_name):
+#         """
+#         De-serializes a PulseBlockEnsemble instance from file.
+#
+#         @param str ensemble_name: The name of the PulseBlockEnsemble instance to de-serialize
+#         @return PulseBlockEnsemble: The de-serialized PulseBlockEnsemble instance
+#         """
+#         ensemble = None
+#         filepath = os.path.join(self.pulsed_file_dir, '{0}.ensemble'.format(ensemble_name))
+#         if os.path.exists(filepath):
+#             try:
+#                 with open(filepath, 'rb') as file:
+#                     ensemble = pickle.load(file)
+#             except pickle.UnpicklingError:
+#                 self.log.error('Failed to de-serialize PulseBlockEnsemble "{0}" from file. '
+#                                'Deleting broken file.'.format(ensemble_name))
+#                 os.remove(filepath)
+#         return ensemble
+#
+#     def _load_sequence_from_file(self, sequence_name):
+#         """
+#         De-serializes a PulseSequence instance from file.
+#
+#         @param str sequence_name: The name of the PulseSequence instance to de-serialize
+#         @return PulseSequence: The de-serialized PulseSequence instance
+#         """
+#         filepath = os.path.join(self.pulsed_file_dir, '{0}.sequence'.format(sequence_name))
+#         if os.path.exists(filepath):
+#             try:
+#                 with open(filepath, 'rb') as file:
+#                     sequence = pickle.load(file)
+#                 # FIXME: Due to the pickling the dict namespace merging gets lost on the way.
+#                 # Restored it here but a better way needs to be found.
+#                 for step in range(len(sequence)):
+#                     sequence[step].__dict__ = sequence[step]
+#             except pickle.UnpicklingError:
+#                 self.log.error('Failed to de-serialize PulseSequence "{0}" from file.'
+#                                ''.format(sequence_name))
+#                 os.remove(filepath)
+#                 return None
+#
+#         # Conversion for backwards compatibility
+#         if len(sequence) > 0 and not isinstance(sequence[0].flag_high, list):
+#             self.log.warning('Loading deprecated PulseSequence instances from disk. '
+#                              'Attempting conversion to new format.\nIf you keep getting this '
+#                              'message after reloading SequenceGeneratorLogic or restarting qudi, '
+#                              'please regenerate the affected PulseSequence "{0}".'
+#                              ''.format(sequence_name))
+#             for step_no, step_params in enumerate(sequence):
+#                 # Try to convert "flag_high" step parameter
+#                 if isinstance(step_params.flag_high, str):
+#                     if step_params.flag_high.upper() == 'OFF':
+#                         sequence[step_no].flag_high = list()
+#                     else:
+#                         sequence[step_no].flag_high = [step_params.flag_high]
+#                 elif isinstance(step_params.flag_high, dict):
+#                     sequence[step_no].flag_high = [flag for flag, state in
+#                                                    step_params.flag_high.items() if state]
+#                 else:
+#                     self.log.error('Failed to de-serialize PulseSequence "{0}" from file.'
+#                                    '"flag_high" step parameter is of unknown type'
+#                                    ''.format(sequence_name))
+#                     os.remove(filepath)
+#                     return None
+#
+#                 # Try to convert "flag_trigger" step parameter
+#                 if isinstance(step_params.flag_trigger, str):
+#                     if step_params.flag_trigger.upper() == 'OFF':
+#                         sequence[step_no].flag_trigger = list()
+#                     else:
+#                         sequence[step_no].flag_trigger = [step_params.flag_trigger]
+#                 elif isinstance(step_params.flag_trigger, dict):
+#                     sequence[step_no].flag_trigger = [flag for flag, state in
+#                                                       step_params.flag_trigger.items() if state]
+#                 else:
+#                     self.log.error('Failed to de-serialize PulseSequence "{0}" from file.'
+#                                    '"flag_trigger" step parameter is of unknown type'
+#                                    ''.format(sequence_name))
+#                     os.remove(filepath)
+#                     return None
+#             self._save_sequence_to_file(sequence)
+#         return sequence
+#
+#     def _seq_to_block_list(self, seq):
+#         """
+#         Make sequence (from file) into list of blocknames
+#
+#         @param str seq: name of sequence.
+#         @return list str: list of strings corresponding to names of blocks in the ensembles that the sequence is made of.
+#         """
+#         block_list = []
+#         seq = self._load_sequence_from_file(seq)
+#         for ens in seq.ensemble_list:
+#             for i in range(ens['repetitions'] + 1):
+#                 for block in self._ens_to_block_list(ens['ensemble']):
+#                     block_list.append(block)
+#         return block_list
+#
+#     def _ens_to_block_list(self, ens):
+#         """
+#         Make ensemble (from file) into list of blocknames
+#
+#         @param str ens: name of ensemble.
+#         @return list str: list of strings corresponding to names of blocks in the ensemble.
+#         """
+#         block_list = []
+#         ens = self._load_ensemble_from_file(ens)
+#         for block, rep in ens.block_list:
+#             for i in range(rep + 1):
+#                 block_list.append(block)
+#         return block_list
+#
+#     def _block_list_to_msg_list(self, block_list):
+#         """
+#         Converts list of blocknames to list of elements that the blocks are constituted of.
+#
+#         @param list str block_list: list of strings corresponding to names of blocks to load.
+#         @return list PulseBlockElement: list of elements of type "PulseBlockElements" (internal to qudi)
+#         """
+#         msg_list = []
+#         for item in block_list:
+#             block = self._load_block_from_file(item)
+#             for elem in block.element_list:
+#                 msg_list.append(elem)
+#         return msg_list
+#
+#     def _msg_list_to_ps_msg_list(self, msg_list):
+#         """
+#         Converts list of PulseBlockElements to list of PulseMessage methods.
+#
+#         @param list PulseBlockElement msg_list: list of PulseBlockElements to be converted
+#         @return PulseMessage: list of PulseMessages
+#         """
+#         return [self._msg_to_ps_msg(elem) for elem in msg_list]
+# #        ps_list = []
+# #        for elem in msg_list:
+# #            # print(self._msg_to_ps_msg(elem))
+# #            ps_list.append(self._msg_to_ps_msg(elem))
+# #        return ps_list
+#
+#     def _msg_to_ps_msg(self, elem):
+#         """
+#         Converts list of PulseBlockElements to list of PulseMessage methods.
+#
+#         @param PulseBlockElement elem: PulseBlockElement to be converted
+#         @return PulseMessage: PulseMessage to be read into PulseStreamer
+#         """
+#         num_ticks = int(elem.init_length_s * 1e9)
+#         digi_chnls = []
+#         for key, value in elem.digital_high.items():
+#             if value:
+#                 digi_chnls.append(self._channel_to_index(key))
+#         digi_chnls = self._convert_to_bitmask(digi_chnls)
+#         return pulse_streamer_pb2.PulseMessage(ticks=num_ticks, digi=digi_chnls, ao0=0, ao1=0)
+#
+#     def _seq_to_ps_msg_list(self, seq):
+#         return self._msg_list_to_ps_msg_list(self._block_list_to_msg_list(self._seq_to_block_list(seq)))
+#
+#     def _ens_to_ps_msg_list(self, ens):
+#         return self._msg_list_to_ps_msg_list(self._block_list_to_msg_list(self._ens_to_block_list(ens)))
+#
+#     def _msg_list_to_ps_sequences(self, msg_list):
+#         """
+#
+#         @param list msg_list: list of messages to be translated to the sequences that are PulseStreamer compliant.
+#                                 example of msg_list:
+#                                     [PulseBlockElement(init_length_s=1e-08, increment_s=0, laser_on=False, pulse_function={}, digital_high={'d_ch1': False, 'd_ch2': True, 'd_ch3': True, 'd_ch4': False, 'd_ch5': False, 'd_ch6': False, 'd_ch7': False, 'd_ch8': False}),
+#                                     PulseBlockElement(init_length_s=1e-08, increment_s=0, laser_on=False, pulse_function={}, digital_high={'d_ch1': False, 'd_ch2': True, 'd_ch3': True, 'd_ch4': False, 'd_ch5': False, 'd_ch6': False, 'd_ch7': False, 'd_ch8': False}),
+#                                     PulseBlockElement(init_length_s=1e-08, increment_s=0, laser_on=False, pulse_function={}, digital_high={'d_ch1': False, 'd_ch2': True, 'd_ch3': True, 'd_ch4': False, 'd_ch5': False, 'd_ch6': False, 'd_ch7': False, 'd_ch8': False})]
+#         @return dict: Dictionary containing:
+#                             Keys str:       strings containing generic channel names
+#                             Values list:    list of tuples containing the states which are to be sent to pulsestreamer.
+#                                                 Tuples consists of: (duration_time(ns) , digi_state(0/1))
+#                                 example of ps seqence:
+#                                     {'d_ch1': [(29, False)],
+#                                     'd_ch2': [(29, True)],
+#                                     'd_ch3': [(29, True)],
+#                                     'd_ch4': [(29, False)],
+#                                     'd_ch5': [(29, False)],
+#                                     'd_ch6': [(29, False)],
+#                                     'd_ch7': [(29, False)],
+#                                     'd_ch8': [(29, False)]}
+#         """
+#         #TODO need to do rounding of duration lengths correct... still problems regarding sequences...
+#         chnl_dict = {}
+#         for chnl_name in list(self.get_active_channels()):
+#             #initializasion:
+#             chnl_seq = []
+#             duration = msg_list[0].init_length_s
+#             #iterate over all but 0'th index, and compare boolean w. previous value:
+#             for index in range(1, len(msg_list)):
+#                 if msg_list[index].digital_high[chnl_name] != msg_list[index - 1].digital_high[chnl_name]:
+#                     chnl_seq.append((int(round(duration, 9) * 1e9), msg_list[index - 1].digital_high[chnl_name]))
+#                     duration = msg_list[index].init_length_s
+#                 else:
+#                     duration = duration + msg_list[index].init_length_s
+#                 if index == (len(msg_list)-1):
+#                     chnl_seq.append((int(round(duration, 9) * 1e9), msg_list[index].digital_high[chnl_name])) # time in units ns
+# #                    chnl_seq.append((round(duration, 9), msg_list[index].digital_high[chnl_name])) # time in units s
+#             # cleaning up...
+#             # if (len(chnl_seq) > 1) or ((len(chnl_seq) == 1) and chnl_seq[0][1]):
+#             chnl_dict[chnl_name] = chnl_seq
+#             # do rounding correction here instead of inside body of function?
+#         return chnl_dict
+#
+#     def _ens_to_ps_sequences(self, ens):
+#         return self._msg_list_to_ps_sequences(self._block_list_to_msg_list(self._ens_to_block_list(ens)))
+#
+#     def _seq_to_ps_sequences(self, seq):
+#         return self._msg_list_to_ps_sequences(self._block_list_to_msg_list(self._seq_to_block_list(seq)))
+#
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #  ====== Old functions ======
 
