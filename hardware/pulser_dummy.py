@@ -425,6 +425,10 @@ class PulserDummy(Base, PulserInterface):
                              respective asset loaded into the channel, string describing the asset
                              type ('waveform' or 'sequence')
         """
+
+        print('load_dict:')
+        print(load_dict)
+
         if isinstance(load_dict, list):
             new_dict = dict()
             for waveform in load_dict:

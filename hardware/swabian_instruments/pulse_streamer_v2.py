@@ -32,12 +32,20 @@ from core.util.helpers import natural_sort
 from interface.pulser_interface import PulserInterface, PulserConstraints
 from collections import OrderedDict
 
+# import JSON-RPC Pulse Streamer wrapper class, to use Google-RPC import from pulsestreamer.grpc
+#from pulsestreamer import PulseStreamer
+import pulsestreamer
+# import enum types
+from pulsestreamer import TriggerStart, TriggerRearm
+# import class Sequence and OutputState for advanced sequence building
+from pulsestreamer import Sequence, OutputState
+
 import numpy as np
 # import time
 import pickle
-import grpc
+# import grpc
 import os
-import hardware.swabian_instruments.pulse_streamer_pb2 as pulse_streamer_pb2
+#import hardware.swabian_instruments.pulse_streamer_pb2 as pulse_streamer_pb2
 #import dill
 
 
@@ -85,16 +93,39 @@ class PulseStreamer(Base, PulserInterface):
 
         self.current_status = -1
         self.sample_rate = 1e9
-        self.loaded_waveforms = []
-        self.ps_waveforms_dict = {}
-        self.ps_waveform = None
+        self.to_be_streamed = None # sequence to be streamed like: self.pulsestreamer.stream(self.to_be_streamed)
+
+
+        self.waveform_names = []
+        self.waveform_channel_names = []
+        self.ps_waveforms_dict = {} # Dict containing human-readable elements of the waveform eg. {(dummy_ens_ch1:[(1,10), (0,10), ...]), ...}
+        # self.ps_waveform = None # currently uploaded waveform in ps object format.
+
+        self.sequence_names = []
+        self.sequence_channel_names = []
+        self.ps_sequence_dict = {} # Dict containing human-readable elements of the sequence eg. {(dummy_ens_ch1:[(1,10), (0,10), ...]), ...}
+        self.seq_master_dict = {} # dict with keys being sequencenames, and values being
+                                # dict of corresponding sequence channelnames as keys with values being the humanreadable sequence.
+        # self.ps_sequence = None # current uploaded sequence in ps object format.
+
+        self.to_be_streamed = None # # current uploaded waveform/sequence in ps object format.
+
         self.current_loaded_asset = {}, None
 
-        self._channel = grpc.insecure_channel(self._pulsestreamer_ip + ':50051')
+#        self._channel = grpc.insecure_channel(self._pulsestreamer_ip + ':50051')
+
+        self.pulse_streamer = pulsestreamer.PulseStreamer(self._pulsestreamer_ip)
+#        print('pulsestreamer: ' + str(self.pulse_streamer))
 
     def on_activate(self):
         """ Establish connection to pulse streamer and tell it to cancel all operations """
-        self.pulse_streamer = pulse_streamer_pb2.PulseStreamerStub(self._channel)
+#        self.pulse_streamer = pulse_streamer_pb2.PulseStreamerStub(self._channel)
+        self.pulse_streamer = pulsestreamer.PulseStreamer(self._pulsestreamer_ip)
+#        print('pulsestreamer: ' + str(self.pulse_streamer))
+        start = TriggerStart.SOFTWARE
+        rearm = TriggerRearm.MANUAL
+        self.pulse_streamer.setTrigger(start=start, rearm=rearm)
+
         self.pulser_off()
         self.current_status = 0
 
@@ -161,11 +192,12 @@ class PulseStreamer(Base, PulserInterface):
         # channels. Here all possible channel configurations are stated, where only the generic
         # names should be used. The names for the different configurations can be customary chosen.
         activation_config = OrderedDict()
-        activation_config['digital'] = frozenset({'d_ch1', 'd_ch2', 'd_ch3', 'd_ch4', 'd_ch5', 'd_ch6', 'd_ch7',
-                                    'd_ch8'})
+        activation_config['digital'] = frozenset({'d_ch1', 'd_ch2', 'd_ch3', 'd_ch4',
+                                                  'd_ch5', 'd_ch6', 'd_ch7', 'd_ch8'})
         activation_config['analogue'] = frozenset({'a_ch1', 'a_ch2'})
-        activation_config['all'] = frozenset({'d_ch1', 'd_ch2', 'd_ch3', 'd_ch4', 'd_ch5', 'd_ch6', 'd_ch7',
-                                    'd_ch8', 'a_ch1', 'a_ch2'})
+        activation_config['all'] = frozenset({'d_ch1', 'd_ch2', 'd_ch3', 'd_ch4',
+                                              'd_ch5', 'd_ch6', 'd_ch7', 'd_ch8',
+                                              'a_ch1', 'a_ch2'})
         constraints.activation_config = activation_config
 
         return constraints
@@ -177,9 +209,9 @@ class PulseStreamer(Base, PulserInterface):
         @return int: error code (0:OK, -1:error)
         """
         # start the pulse sequence
-        self.pulse_streamer.stream(self._sequence)
+        # self.pulse_streamer.stream(self.to_be_streamed)
         self.log.info('Asset uploaded to PulseStreamer')
-        self.pulse_streamer.startNow(pulse_streamer_pb2.VoidMessage())
+        self.pulse_streamer.startNow()
         self.current_status = 1
         return 0
 
@@ -189,8 +221,9 @@ class PulseStreamer(Base, PulserInterface):
         @return int: error code (0:OK, -1:error)
         """
         # stop the pulse sequence
-        channels = self._convert_to_bitmask([self._laser_channel, self._uw_x_channel])
-        self.pulse_streamer.constant(pulse_streamer_pb2.PulseMessage(ticks=0, digi=channels, ao0=0, ao1=0))
+        channels = [self._laser_channel, self._uw_x_channel]
+        # channels = self._convert_to_bitmask([self._laser_channel, self._uw_x_channel])
+        self.pulse_streamer.constant(OutputState(channels, 0, 0))
         self.current_status = 0
         return 0
 
@@ -231,6 +264,45 @@ class PulseStreamer(Base, PulserInterface):
         (PulseBlaster, FPGA).
         """
         pass
+
+    def get_waveform_names(self):
+        """ Retrieve the names of all uploaded waveforms on the device.
+
+        @return list: List of all uploaded waveform name strings in the device workspace.
+        """
+
+        return self.waveform_channel_names
+        # return self.waveform_names
+
+    #         mydummypulser.get_waveform_names()
+    #         Out[19]:
+    #         ['dummy_ens_ch5',
+    #          'dummy_ens_ch3',
+    #          'dummy_2_ens_ch2',
+    #          'dummy_ens_ch7',
+    #          'dummy_2_ens_ch1',
+    #          'dummy_2_ens_ch3',
+    #          'dummy_ens_ch4',
+    #          'dummy_2_ens_ch5',
+    #          'dummy_2_ens_ch6',
+    #          'dummy_2_ens_ch4',
+    #          'dummy_ens_ch6',
+    #          'dummy_2_ens_ch7',
+    #          'dummy_ens_ch1',
+    #          'dummy_2_ens_ch8',
+    #          'dummy_ens_ch8',
+    #          'dummy_ens_ch2']
+
+    def get_sequence_names(self):
+        """ Retrieve the names of all uploaded sequence on the device.
+
+        @return list: List of all uploaded sequence name strings in the device workspace.
+        """
+
+        return self.sequence_names
+
+#     mydummypulser.get_sequence_names()
+#     Out[20]: ['dummy_2_seq', 'dummy_seq']
 
     def write_waveform(self, name, analog_samples, digital_samples, is_first_chunk, is_last_chunk,
                        total_number_of_samples):
@@ -283,59 +355,29 @@ class PulseStreamer(Base, PulserInterface):
                                'pulser.')
                 return -1, waveforms
 
-        print(name)
-        print(digital_samples)
-
-        msgs = []
-        chnl_states = []
-        chnl_states_new = []
-        chnl_on_list = []
-        duration = 0
-        for i in range(total_number_of_samples):
-            duration = duration + 1
-            diff = False
-            for j in range(1, 9):
-                key = 'd_ch' + str(j)
-                if i == 0:
-                    chnl_states.append(digital_samples[key][i])
-                elif digital_samples[key][i] != digital_samples[key][i-1]:
-                    diff = True
-                    chnl_states_new.append(digital_samples[key][i])
-                    if j == 8 and diff:
-                        #update list of channelnumbers, where channel state is on/"True"
-                        for num, state in enumerate(chnl_states):
-                            if state:
-                                chnl_on_list.append(num)
-                        msgs.append(pulse_streamer_pb2.PulseMessage(ticks=duration,
-                                                                    digi=self._convert_to_bitmask(chnl_on_list),
-                                                                    ao0=0, ao1=0))
-                        duration = 0
-                        chnl_states = chnl_states_new
-                if i == total_number_of_samples - 1:
-                    msgs.append(pulse_streamer_pb2.PulseMessage(ticks=duration,
-                                                                digi=self._convert_to_bitmask(chnl_on_list),
-                                                                ao0=0, ao1=0))
-
-        blank_pulse = pulse_streamer_pb2.PulseMessage(ticks=0, digi=0, ao0=0, ao1=0)
-        laser_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=self._convert_to_bitmask([self._laser_channel]), ao0=0, ao1=0)
-        laser_and_uw_channels = self._convert_to_bitmask([self._laser_channel, self._uw_x_channel])
-        laser_and_uw_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=laser_and_uw_channels, ao0=0, ao1=0)
-
-        self.ps_waveform = pulse_streamer_pb2.SequenceMessage(pulse=msgs, n_runs=0, initial=laser_on,
-                                                                final=laser_and_uw_on, underflow=blank_pulse, start=1)
-
         for chnl, samples in digital_samples.items():
-            waveforms.append(name + chnl[1:])
-#             if True in samples:
-#                 waveforms.append(name + chnl[1:])
+            waveform_name = name + chnl[1:]
+            waveforms.append(waveform_name)
+            if waveform_name not in self.ps_waveforms_dict.keys():
+                self.ps_waveforms_dict[waveform_name] = self._array_to_ps_sequence(samples)
+            if waveform_name not in self.waveform_channel_names:
+                self.waveform_channel_names.append(waveform_name)
 
+        if name not in self.waveform_names:
+            self.waveform_names.append(name)
 
-        # append waveform to program memory.
-        self.loaded_waveforms.append(name)
-        if name not in self.ps_waveforms_dict.keys():
-            self.ps_waveforms_dict[name] = msgs
+        # setDigital method here!!
+        # self.to_be_streamed = self.pulse_streamer.createSequence()
+        temp_dict = {}
+        for wf_name, ps_seq in self.ps_waveforms_dict.items():
+            # self.to_be_streamed.setDigital(self._channel_to_index(wf_name), ps_seq)
+            temp_dict[self._channel_to_index(wf_name)+1] = wf_name
 
+        # self.ps_sequence = None
+        self.sequence_names = []
+        self.current_loaded_asset = temp_dict, 'waveform'
 
+        # self.to_be_streamed.plot()
 
         return number_of_samples, waveforms
 
@@ -361,46 +403,48 @@ class PulseStreamer(Base, PulserInterface):
 
         @return: int, number of sequence steps written (-1 indicates failed process)
         """
-        print("name: " + str(name))
-        print("sequence_parameters: " + str(sequence_parameters))
 
-        sequence = []
+        init = True
         for channels, dict in sequence_parameters:
+            # initializes ps_sequence_dict
+            if init:
+                init = False
+                for chnl in channels:
+                    sequence_channel_name = name + '_' + str(self._channel_to_index(chnl) + 1)
+                    self.ps_sequence_dict[sequence_channel_name] = []
             ensemble = dict['ensemble']
-            print(ensemble)
-            if ensemble not in self.ps_waveforms_dict.keys():
-                self.log.error('Waveform {0} not written to device. Write waveforms present in sequence to device, before proceeding'.format(ensemble))
+            #Checks that ensemble has been read in as waveform.
+            if ensemble not in self.waveform_names:
+                self.log.error(
+                    'Waveform {0} not written to device. Write waveforms present in sequence to device, before proceeding'.format(
+                        ensemble))
                 return -1
             reps = dict['repetitions']
-            for i in range(reps + 1):
-                for j in self.ps_waveform[ensemble]:
-                    sequence.append(j)
-                self.ps_sequence = sequence
+            for chnl in channels:
+                sequence_channel_name = name + '_' + str(self._channel_to_index(chnl) + 1)
+                for i in range(reps + 1):
+                    self.ps_sequence_dict[sequence_channel_name] = self.ps_sequence_dict[sequence_channel_name] + self.ps_waveforms_dict[chnl]
+        self.seq_master_dict[name] = self.ps_sequence_dict
+        # updating variable wrt. what is "loaded" into PS.
+        temp_dict = {}
+        # self.to_be_streamed = self.pulse_streamer.createSequence()
+        for seq_name, ps_seq in self.ps_sequence_dict.items():
+            # print(seq_name, ps_seq)
+            # self.to_be_streamed.setDigital(self._channel_to_index(seq_name), ps_seq)
+            temp_dict[self._channel_to_index(seq_name) + 1] = seq_name
 
+        self.waveform_channel_names = []
+        self.sequence_names.append(name)
+        self.sequence_channel_names = [s for s in self.ps_sequence_dict.keys()]
+        self.current_loaded_asset = temp_dict, 'sequence'
 
-        # name: dummy_seq
-        # sequence_parameters: [(('dummy_ens_ch1', 'dummy_ens_ch2', 'dummy_ens_ch3', 'dummy_ens_ch4', 'dummy_ens_ch5',
-        #                         'dummy_ens_ch6', 'dummy_ens_ch7', 'dummy_ens_ch8'),
-        #                        {'ensemble': 'dummy_ens', 'repetitions': 1, 'go_to': -1, 'event_jump_to': -1,
-        #                         'event_trigger': 'OFF', 'wait_for': 'OFF', 'flag_trigger': [], 'flag_high': []}), ((
-        #                                                                                                            'dummy_ens_ch1',
-        #                                                                                                            'dummy_ens_ch2',
-        #                                                                                                            'dummy_ens_ch3',
-        #                                                                                                            'dummy_ens_ch4',
-        #                                                                                                            'dummy_ens_ch5',
-        #                                                                                                            'dummy_ens_ch6',
-        #                                                                                                            'dummy_ens_ch7',
-        #                                                                                                            'dummy_ens_ch8'),
-        #                                                                                                            {
-        #                                                                                                                'ensemble': 'dummy_ens',
-        #                                                                                                                'repetitions': 0,
-        #                                                                                                                'go_to': -1,
-        #                                                                                                                'event_jump_to': -1,
-        #                                                                                                                'event_trigger': 'OFF',
-        #                                                                                                                'wait_for': 'OFF',
-        #                                                                                                                'flag_trigger': [],
-        #                                                                                                                'flag_high': []})]
+        # self.to_be_streamed.plot()
+        # print(self.pulse_streamer.hasSequence())
+        #
+        # print('self.ps_sequence_dict:')
+        # print(self.ps_sequence_dict)
 
+        return len(sequence_parameters)
 
         # name: dummy_2_seq
         # sequence_parameters: [(('dummy_2_ens_ch1', 'dummy_2_ens_ch2', 'dummy_2_ens_ch3', 'dummy_2_ens_ch4',
@@ -425,61 +469,6 @@ class PulseStreamer(Base, PulserInterface):
         #                                                                                                                'flag_trigger': [],
         #                                                                                                                'flag_high': []})]
 
-
-        # self.loaded_waveforms.append(name)
-        return len(sequence_parameters)
-
-    def get_waveform_names(self):
-        """ Retrieve the names of all uploaded waveforms on the device.
-
-        @return list: List of all uploaded waveform name strings in the device workspace.
-        """
-
-        dict, format = self.current_loaded_asset
-        if format == 'waveform':
-            for key, val in dict.items():
-                return [val]
-        elif format == 'sequence':
-            print(self.current_loaded_asset) # for key, val in dict.items():
-        else:
-            return []
-
-#         mydummypulser.get_waveform_names()
-#         Out[19]:
-#         ['dummy_ens_ch5',
-#          'dummy_ens_ch3',
-#          'dummy_2_ens_ch2',
-#          'dummy_ens_ch7',
-#          'dummy_2_ens_ch1',
-#          'dummy_2_ens_ch3',
-#          'dummy_ens_ch4',
-#          'dummy_2_ens_ch5',
-#          'dummy_2_ens_ch6',
-#          'dummy_2_ens_ch4',
-#          'dummy_ens_ch6',
-#          'dummy_2_ens_ch7',
-#          'dummy_ens_ch1',
-#          'dummy_2_ens_ch8',
-#          'dummy_ens_ch8',
-#          'dummy_ens_ch2']
-
-    def get_sequence_names(self):
-        """ Retrieve the names of all uploaded sequence on the device.
-
-        @return list: List of all uploaded sequence name strings in the device workspace.
-        """
-
-        #TODO: not entirely right...i guess...
-        dict, format = self.current_loaded_asset
-        # print(self.current_loaded_asset)
-        if format == 'sequence':
-            for key, val in dict.items():
-                return [val]
-        else:
-            return []
-
-#     mydummypulser.get_sequence_names()
-#     Out[20]: ['dummy_2_seq', 'dummy_seq']
 
     def load_waveform(self, load_dict):
         """ Loads a waveform to the specified channel of the pulsing device.
@@ -506,31 +495,40 @@ class PulseStreamer(Base, PulserInterface):
             self.log.warning('"load_asset" called with asset_name = None.')
             return {}
 
-        # check if asset exists
-        saved_assets = self.get_waveform_names()
-        if load_dict not in saved_assets:
-            self.log.error('No waveform with name "{0}" found for PulseStreamer.\n'
-                                '"load_waveform" call ignored.'.format(load_dict))
+        if not isinstance(load_dict, (list,dict)):
+            self.log.error('Input object of type either Dict or List as input.')
             return -1
 
-        # get samples from file
-        # filepath = os.path.join(self.pulsed_file_dir, load_dict + '.ensemble')
-        # pulse_waveform_raw = pickle.load(open(filepath, 'rb'))
+        # check if type of load_dict is list, and correct to dict format.
+        if type(load_dict) == list:
+            temp_dict = {}
+            for i in load_dict: #
+                temp_dict[self._channel_to_index(i)+1] = i
+            load_dict = temp_dict
 
-        pulse_waveform = []
-        for pulse in pulse_waveform_raw:
-            pulse_waveform.append(pulse_streamer_pb2.PulseMessage(ticks=pulse[0], digi=pulse[1], ao0=0, ao1=1))
+        # check if asset exists, and write to Pulsestreamer if it does.
+        self.to_be_streamed = self.pulse_streamer.createSequence()
+        for channel, waveform in load_dict.items():
+            if waveform not in self.get_waveform_names():
+                self.log.error('No waveform with name "{0}" found for PulseStreamer.\n'
+                                '"load_waveform" call ignored.'.format(load_dict))
+                return -1
 
-        blank_pulse = pulse_streamer_pb2.PulseMessage(ticks=0, digi=0, ao0=0, ao1=0)
-        laser_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=self._convert_to_bitmask([self._laser_channel]), ao0=0, ao1=0)
-        laser_and_uw_channels = self._convert_to_bitmask([self._laser_channel, self._uw_x_channel])
-        laser_and_uw_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=laser_and_uw_channels, ao0=0, ao1=0)
-        self._waveform = pulse_streamer_pb2.SequenceMessage(pulse=pulse_waveform, n_runs=0, initial=laser_on,
-            final=laser_and_uw_on, underflow=blank_pulse, start=1)
+            self.to_be_streamed.setDigital(channel-1, self.ps_waveforms_dict[waveform])
 
+        self.to_be_streamed.plot()
+
+        # load process goes here; this is done from writing process already... not?
+        blank_pulse = self.pulse_streamer.constant(OutputState.ZERO())
+        laser_on = self.pulse_streamer.constant(OutputState([self._laser_channel], 0, 0))
+        laser_and_uw_on = self.pulse_streamer.constant(OutputState([self._laser_channel, self._uw_x_channel], 0, 0))
+        self.pulse_streamer.stream(self.to_be_streamed, n_runs=0, final=laser_and_uw_on)
+        # self._waveform = pulse_streamer_pb2.SequenceMessage(pulse=pulse_waveform, n_runs=0, initial=laser_on,
+                                                            #     final=laser_and_uw_on, underflow=blank_pulse, start=1)
+        # update and return
         self.current_loaded_asset = load_dict, 'waveform'
+        return self.current_loaded_asset
 
-        return load_dict
 
     def load_sequence(self, sequence_name):
         """ Loads a sequence to the channels of the device in order to be ready for playback.
@@ -546,7 +544,7 @@ class PulseStreamer(Base, PulserInterface):
 
         # ignore if no asset_name is given
         if sequence_name is None:
-            self.log.warning('"load_asset" called with asset_name = None.')
+            self.log.warning('"load_sequence" called with sequence_name = None.')
             return {}
 
         # check if asset exists
@@ -555,26 +553,32 @@ class PulseStreamer(Base, PulserInterface):
             self.log.error('No sequence with name "{0}" found for PulseStreamer.\n'
                            '"load_sequence" call ignored.'.format(sequence_name))
             return -1
+        self.to_be_streamed = self.pulse_streamer.createSequence()
+        # if self.pulse_streamer.hasSequence():
+        #     self.pulse_streamer.constant(OutputState.ZERO())
+        # self.to_be_streamed = self.pulse_streamer.createSequence()
+        return_dict = {}
+        for seq_chnl_name, ps_seq in self.seq_master_dict[sequence_name].items():
+            self.to_be_streamed.setDigital(self._channel_to_index(seq_chnl_name), ps_seq)
+            return_dict[self._channel_to_index(seq_chnl_name)+1] = seq_chnl_name
 
-        # get samples from file
-        filepath = os.path.join(self.pulsed_file_dir, sequence_name + '.pstream')
-        pulse_sequence_raw = pickle.load(open(filepath, 'rb'))
-        # pulse_sequence_raw = samples_write_methods._write_pstream(data)
+        blank_pulse = self.pulse_streamer.constant(OutputState.ZERO())
+        laser_on = self.pulse_streamer.constant(OutputState([self._laser_channel], 0, 0))
+        laser_and_uw_on = self.pulse_streamer.constant(OutputState([self._laser_channel, self._uw_x_channel], 0, 0))
+        self.pulse_streamer.stream(self.to_be_streamed, n_runs=0, final=laser_and_uw_on)
 
-        pulse_sequence = []
-        for pulse in pulse_sequence_raw:
-            pulse_sequence.append(pulse_streamer_pb2.PulseMessage(ticks=pulse[0], digi=pulse[1], ao0=0, ao1=1))
-
-        blank_pulse = pulse_streamer_pb2.PulseMessage(ticks=0, digi=0, ao0=0, ao1=0)
-        laser_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=self._convert_to_bitmask([self._laser_channel]), ao0=0,
-                                                   ao1=0)
-        laser_and_uw_channels = self._convert_to_bitmask([self._laser_channel, self._uw_x_channel])
-        laser_and_uw_on = pulse_streamer_pb2.PulseMessage(ticks=0, digi=laser_and_uw_channels, ao0=0, ao1=0)
-        self._sequence = pulse_streamer_pb2.SequenceMessage(pulse=pulse_sequence, n_runs=0, initial=laser_on,
-                                                            final=laser_and_uw_on, underflow=blank_pulse, start=1)
-        self.current_loaded_asset = sequence_name, 'sequence'
-
-        return sequence_name
+        if self.pulse_streamer.hasSequence():
+            self.to_be_streamed.plot()
+            # self.to_be_streamed.getData()
+            # self.pulse_streamer.constant(OutputState.ZERO())
+            # self.to_be_streamed.plot()
+            # self.to_be_streamed.getData()
+        else:
+            self.log.error('No sequence with name "{0}" uploaded to PulseStreamer.\n'
+                           '"load_sequence" call ignored.'.format(sequence_name))
+        #update and return
+        self.current_loaded_asset = return_dict, 'sequence'
+        return self.current_loaded_asset
 
 #     sequencegeneratorlogic.sample_pulse_sequence('dummy_seq')
 #     dummy_seq[(('dummy_ens_ch1', 'dummy_ens_ch2', 'dummy_ens_ch3', 'dummy_ens_ch4', 'dummy_ens_ch5', 'dummy_ens_ch6',
@@ -598,7 +602,12 @@ class PulseStreamer(Base, PulserInterface):
         Unused for digital pulse generators without storage capability
         (PulseBlaster, FPGA).
         """
-        return 0
+        self.to_be_streamed.setDigital(OutputState.ZERO())
+        self.to_be_streamed.plot()
+        if not self.pulse_streamer.hasSequence():
+            return -1
+        else:
+            return 0
 
     def get_status(self):
         """ Retrieves the status of the pulsing hardware
@@ -814,9 +823,11 @@ class PulseStreamer(Base, PulserInterface):
 
         @return int: error code (0:OK, -1:error)
         """
-        channels = self._convert_to_bitmask([self._laser_channel, self._uw_x_channel])
-        self.pulse_streamer.constant(pulse_streamer_pb2.PulseMessage(ticks=0, digi=channels, ao0=0, ao1=0))
-        self.pulse_streamer.constant(laser_on)
+#        channels = [self._laser_channel, self._uw_x_channel]
+#        self.pulse_streamer.constant(OutputState(channels, 0, 0))
+#        self.pulse_streamer.constant(laser_on)
+        self.pulse_streamer.reset()
+        self.pulse_streamer.constant(OutputState([self._laser_channel], 0, 0))
         return 0
 
 #  ====== Internal functions ======
@@ -883,11 +894,23 @@ class PulseStreamer(Base, PulserInterface):
             return int(ch[-1])-1
         elif ch.startswith('a_ch'):
             return int(ch[-1])-1
+        elif ch[-4:-1] == '_ch':
+            return int(ch[-1]) - 1
+        elif ch in self.ps_sequence_dict.keys():
+            return int(ch[-1]) - 1
         else:
             self.log.error('Channel not given or ill-defined')
 
 
     def _array_to_ps_sequence(self, array):
+        """
+        Transform np array into pulse streamer sequence format
+
+        @param array: nparray containing the state of the digital channel of pullse streamer pr ns.
+        @return list: list consisting of tuples:
+                        first element in tuple is duration in nsec
+                        second element in tuple being the (digital) state of the channel
+        """
         seq = []
         state = [array[0]]
         for ind, i in enumerate(array[1:]):
@@ -899,5 +922,8 @@ class PulseStreamer(Base, PulserInterface):
                 state = [i]
             if ind == len(array[1:]) - 1:
                 seq.append((len(state), state[0]))
-        return seq
+        _seq = []
+        for dur, bool in seq:
+            _seq.append((dur, int(bool)))
+        return _seq
 
