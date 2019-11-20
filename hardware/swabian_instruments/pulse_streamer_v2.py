@@ -107,7 +107,7 @@ class PulseStreamer(Base, PulserInterface):
                                 # dict of corresponding sequence channelnames as keys with values being the humanreadable sequence.
         # ============================
 
-        self.to_be_streamed = None # # current uploaded waveform/sequence in ps object format.
+        self.to_be_streamed = None # current uploaded waveform/sequence in ps object format.
         self.current_loaded_asset = {}, None
 
         self.pulse_streamer = pulsestreamer.PulseStreamer(self._pulsestreamer_ip)
@@ -116,7 +116,6 @@ class PulseStreamer(Base, PulserInterface):
         """ Establish connection to pulse streamer and tell it to cancel all operations """
 #        self.pulse_streamer = pulse_streamer_pb2.PulseStreamerStub(self._channel)
         self.pulse_streamer = pulsestreamer.PulseStreamer(self._pulsestreamer_ip)
-#        print('pulsestreamer: ' + str(self.pulse_streamer))
         start = TriggerStart.SOFTWARE
         rearm = TriggerRearm.AUTO
         self.pulse_streamer.setTrigger(start=start, rearm=rearm)
@@ -157,9 +156,6 @@ class PulseStreamer(Base, PulserInterface):
         ALL THE PRESENT KEYS OF THE CONSTRAINTS DICT MUST BE ASSIGNED!
         """
         constraints = PulserConstraints()
-
-        # constraints.waveform_format = ['pstream']
-        # constraints.sequence_format = []
 
         constraints.sample_rate.min = 1e9
         constraints.sample_rate.max = 1e9
@@ -217,7 +213,6 @@ class PulseStreamer(Base, PulserInterface):
         """
         # stop the pulse sequence
         channels = [self._laser_channel, self._uw_x_channel]
-        # channels = self._convert_to_bitmask([self._laser_channel, self._uw_x_channel])
         self.pulse_streamer.constant(OutputState(channels, 0, 0))
         self.current_status = 0
         return 0
@@ -342,7 +337,7 @@ class PulseStreamer(Base, PulserInterface):
         for wf_name, ps_seq in self.ps_waveforms_dict.items():
             temp_dict[self._channel_to_index(wf_name)+1] = wf_name
 
-        self.sequence_names = []
+        # self.sequence_names = []
         self.current_loaded_asset = temp_dict, 'waveform'
 
         return number_of_samples, waveforms
@@ -389,7 +384,7 @@ class PulseStreamer(Base, PulserInterface):
         for seq_name, ps_seq in self.ps_sequence_dict.items():
             temp_dict[self._channel_to_index(seq_name) + 1] = seq_name
 
-        self.waveform_channel_names = []
+        # self.waveform_channel_names = []
         self.sequence_names.append(name)
         self.sequence_channel_names = [s for s in self.ps_sequence_dict.keys()]
         self.current_loaded_asset = temp_dict, 'sequence'
@@ -444,14 +439,13 @@ class PulseStreamer(Base, PulserInterface):
 
         # load process goes here:
         # defining pulse structures and respective channels and actually loads sequence into channels.
-        blank_pulse = self.pulse_streamer.constant(OutputState.ZERO())
-        laser_on = self.pulse_streamer.constant(OutputState([self._laser_channel], 0, 0))
-        laser_and_uw_on = self.pulse_streamer.constant(OutputState([self._laser_channel, self._uw_x_channel], 0, 0))
+        # blank_pulse = self.pulse_streamer.constant(OutputState.ZERO())
+        # laser_on = self.pulse_streamer.constant(OutputState([self._laser_channel], 0, 0))
+        laser_and_uw_on = OutputState([self._laser_channel, self._uw_x_channel], 0, 0)
         self.pulse_streamer.stream(self.to_be_streamed, n_runs=0, final=laser_and_uw_on)
 
-
         if self.pulse_streamer.hasSequence():
-            self.to_be_streamed.plot()
+            # self.to_be_streamed.plot()
             self.current_loaded_asset = load_dict, 'waveform'
             return self.current_loaded_asset
         else:
@@ -493,12 +487,12 @@ class PulseStreamer(Base, PulserInterface):
         # defining pulse structures and respective channels and actually loads sequence into channels.
         blank_pulse = self.pulse_streamer.constant(OutputState.ZERO())
         laser_on = self.pulse_streamer.constant(OutputState([self._laser_channel], 0, 0))
-        laser_and_uw_on = self.pulse_streamer.constant(OutputState([self._laser_channel, self._uw_x_channel], 0, 0))
+        laser_and_uw_on = OutputState([self._laser_channel, self._uw_x_channel], 0, 0)
         self.pulse_streamer.stream(self.to_be_streamed, n_runs=0, final=laser_and_uw_on)
 
         # update, confirmation and return
         if self.pulse_streamer.hasSequence():
-            self.to_be_streamed.plot()
+            # self.to_be_streamed.plot()
             self.current_loaded_asset = return_dict, 'sequence'
             return self.current_loaded_asset
         else:
@@ -737,8 +731,6 @@ class PulseStreamer(Base, PulserInterface):
         @return int: error code (0:OK, -1:error)
         """
 #        channels = [self._laser_channel, self._uw_x_channel]
-#        self.pulse_streamer.constant(OutputState(channels, 0, 0))
-#        self.pulse_streamer.constant(laser_on)
         self.pulse_streamer.reset()
         start = TriggerStart.SOFTWARE
         rearm = TriggerRearm.AUTO
@@ -760,41 +752,41 @@ class PulseStreamer(Base, PulserInterface):
     #     return os.path.abspath(path)
 
 
-    def _convert_to_bitmask(self, active_channels):
-        """ Convert a list of channels into a bitmask.
-        @param numpy.array active_channels: the list of active channels like
-                            e.g. [0,4,7]. Note that the channels start from 0.
-        @return int: The channel-list is converted into a bitmask (an sequence
-                     of 1 and 0). The returned integer corresponds to such a
-                     bitmask.
-        Note that you can get a binary representation of an integer in python
-        if you use the command bin(<integer-value>). All higher unneeded digits
-        will be dropped, i.e. 0b00100 is turned into 0b100. Examples are
-            bin(0) =    0b0
-            bin(1) =    0b1
-            bin(8) = 0b1000
-        Each bit value (read from right to left) corresponds to the fact that a
-        channel is on or off. I.e. if you have
-            0b001011
-        then it would mean that only channel 0, 1 and 3 are switched to on, the
-        others are off.
-        Helper method for write_pulse_form.
-        """
-        bits = 0     # that corresponds to: 0b0
-        for channel in active_channels:
-            # go through each list element and create the digital word out of
-            # 0 and 1 that represents the channel configuration. In order to do
-            # that a bitwise shift to the left (<< operator) is performed and
-            # the current channel configuration is compared with a bitwise OR
-            # to check whether the bit was already set. E.g.:
-            #   0b1001 | 0b0110: compare elementwise:
-            #           1 | 0 => 1
-            #           0 | 1 => 1
-            #           0 | 1 => 1
-            #           1 | 1 => 1
-            #                   => 0b1111
-            bits = bits | (1<< channel)
-        return bits
+    # def _convert_to_bitmask(self, active_channels):
+    #     """ Convert a list of channels into a bitmask.
+    #     @param numpy.array active_channels: the list of active channels like
+    #                         e.g. [0,4,7]. Note that the channels start from 0.
+    #     @return int: The channel-list is converted into a bitmask (an sequence
+    #                  of 1 and 0). The returned integer corresponds to such a
+    #                  bitmask.
+    #     Note that you can get a binary representation of an integer in python
+    #     if you use the command bin(<integer-value>). All higher unneeded digits
+    #     will be dropped, i.e. 0b00100 is turned into 0b100. Examples are
+    #         bin(0) =    0b0
+    #         bin(1) =    0b1
+    #         bin(8) = 0b1000
+    #     Each bit value (read from right to left) corresponds to the fact that a
+    #     channel is on or off. I.e. if you have
+    #         0b001011
+    #     then it would mean that only channel 0, 1 and 3 are switched to on, the
+    #     others are off.
+    #     Helper method for write_pulse_form.
+    #     """
+    #     bits = 0     # that corresponds to: 0b0
+    #     for channel in active_channels:
+    #         # go through each list element and create the digital word out of
+    #         # 0 and 1 that represents the channel configuration. In order to do
+    #         # that a bitwise shift to the left (<< operator) is performed and
+    #         # the current channel configuration is compared with a bitwise OR
+    #         # to check whether the bit was already set. E.g.:
+    #         #   0b1001 | 0b0110: compare elementwise:
+    #         #           1 | 0 => 1
+    #         #           0 | 1 => 1
+    #         #           0 | 1 => 1
+    #         #           1 | 1 => 1
+    #         #                   => 0b1111
+    #         bits = bits | (1<< channel)
+    #     return bits
 
     def _channel_to_index(self,ch):
         """
