@@ -71,26 +71,6 @@ class PulseStreamer(Base, PulserInterface):
     def __init__(self, config, **kwargs):
         super().__init__(config=config, **kwargs)
 
-        # if 'pulsed_file_dir' in config.keys():
-        #     self.pulsed_file_dir = config['pulsed_file_dir']
-        #
-        #     if not os.path.exists(self.pulsed_file_dir):
-        #         homedir = get_home_dir()
-        #         self.pulsed_file_dir = os.path.join(homedir, 'pulsed_files')
-        #         self.log.warning('The directory defined in parameter '
-        #                     '"pulsed_file_dir" in the config for '
-        #                     'PulseStreamer does not exist!\n'
-        #                     'The default home directory\n{0}\n will be taken '
-        #                     'instead.'.format(self.pulsed_file_dir))
-        # else:
-        #     homedir = get_home_dir()
-        #     self.pulsed_file_dir = os.path.join(homedir, 'pulsed_files')
-        #     self.log.warning('No parameter "pulsed_file_dir" was specified in the config for '
-        #                      'PulseStreamer as directory for the pulsed files!\nThe default home '
-        #                      'directory\n{0}\nwill be taken instead.'.format(self.pulsed_file_dir))
-# ==================================
-        # self.host_waveform_directory = self._get_dir_for_name('sampled_hardware_files')
-
         self.current_status = -1
         self.sample_rate = 1e9
         self.to_be_streamed = None # sequence to be streamed like: self.pulsestreamer.stream(self.to_be_streamed)
@@ -320,7 +300,6 @@ class PulseStreamer(Base, PulserInterface):
                                'pulser.')
                 return -1, waveforms
 
-
         for chnl, samples in digital_samples.items():
             waveform_name = name + chnl[1:]
             waveforms.append(waveform_name)
@@ -439,8 +418,8 @@ class PulseStreamer(Base, PulserInterface):
 
         # load process goes here:
         # defining pulse structures and respective channels and actually loads sequence into channels.
-        # blank_pulse = self.pulse_streamer.constant(OutputState.ZERO())
-        # laser_on = self.pulse_streamer.constant(OutputState([self._laser_channel], 0, 0))
+        blank_pulse = OutputState.ZERO()
+        laser_on = OutputState([self._laser_channel], 0, 0)
         laser_and_uw_on = OutputState([self._laser_channel, self._uw_x_channel], 0, 0)
         self.pulse_streamer.stream(self.to_be_streamed, n_runs=0, final=laser_and_uw_on)
 
@@ -485,8 +464,8 @@ class PulseStreamer(Base, PulserInterface):
             return_dict[self._channel_to_index(seq_chnl_name)+1] = seq_chnl_name
 
         # defining pulse structures and respective channels and actually loads sequence into channels.
-        blank_pulse = self.pulse_streamer.constant(OutputState.ZERO())
-        laser_on = self.pulse_streamer.constant(OutputState([self._laser_channel], 0, 0))
+        blank_pulse = OutputState.ZERO()
+        laser_on = OutputState([self._laser_channel], 0, 0)
         laser_and_uw_on = OutputState([self._laser_channel, self._uw_x_channel], 0, 0)
         self.pulse_streamer.stream(self.to_be_streamed, n_runs=0, final=laser_and_uw_on)
 
@@ -509,8 +488,6 @@ class PulseStreamer(Base, PulserInterface):
         (PulseBlaster, FPGA).
         """
         return 0
-        # self.to_be_streamed.setDigital(OutputState.ZERO())
-        # self.to_be_streamed.plot()
         # if not self.pulse_streamer.hasSequence():
         #     return -1
         # else:
@@ -740,54 +717,6 @@ class PulseStreamer(Base, PulserInterface):
 
 #  ====== Internal functions ======
 
-    # def _get_dir_for_name(self, name):
-    #     """ Get the path to the pulsed sub-directory 'name'.
-    #
-    #     @param name: string, name of the folder
-    #     @return: string, absolute path to the directory with folder 'name'.
-    #     """
-    #     path = os.path.join(self.pulsed_file_dir, name)
-    #     if not os.path.exists(path):
-    #         os.makedirs(os.path.abspath(path))
-    #     return os.path.abspath(path)
-
-
-    # def _convert_to_bitmask(self, active_channels):
-    #     """ Convert a list of channels into a bitmask.
-    #     @param numpy.array active_channels: the list of active channels like
-    #                         e.g. [0,4,7]. Note that the channels start from 0.
-    #     @return int: The channel-list is converted into a bitmask (an sequence
-    #                  of 1 and 0). The returned integer corresponds to such a
-    #                  bitmask.
-    #     Note that you can get a binary representation of an integer in python
-    #     if you use the command bin(<integer-value>). All higher unneeded digits
-    #     will be dropped, i.e. 0b00100 is turned into 0b100. Examples are
-    #         bin(0) =    0b0
-    #         bin(1) =    0b1
-    #         bin(8) = 0b1000
-    #     Each bit value (read from right to left) corresponds to the fact that a
-    #     channel is on or off. I.e. if you have
-    #         0b001011
-    #     then it would mean that only channel 0, 1 and 3 are switched to on, the
-    #     others are off.
-    #     Helper method for write_pulse_form.
-    #     """
-    #     bits = 0     # that corresponds to: 0b0
-    #     for channel in active_channels:
-    #         # go through each list element and create the digital word out of
-    #         # 0 and 1 that represents the channel configuration. In order to do
-    #         # that a bitwise shift to the left (<< operator) is performed and
-    #         # the current channel configuration is compared with a bitwise OR
-    #         # to check whether the bit was already set. E.g.:
-    #         #   0b1001 | 0b0110: compare elementwise:
-    #         #           1 | 0 => 1
-    #         #           0 | 1 => 1
-    #         #           0 | 1 => 1
-    #         #           1 | 1 => 1
-    #         #                   => 0b1111
-    #         bits = bits | (1<< channel)
-    #     return bits
-
     def _channel_to_index(self,ch):
         """
         Inputs channel string and outputs corresponding channel index integer
@@ -834,4 +763,3 @@ class PulseStreamer(Base, PulserInterface):
         for dur, bool in seq:
             _seq.append((dur, int(bool)))
         return _seq
-
