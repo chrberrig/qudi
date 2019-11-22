@@ -249,6 +249,12 @@ class TimeTaggerFastCounter(Base, FastCounterInterface, ODMRCounterInterface):
             @param str odmr_trigger_channel: if defined, this specifies the trigger output for the microwave
                 @return int: error code (0:OK, -1:error)
         """
+
+        if self.module_state() == 'locked':
+            self.log.error('A scan_line is already running, close this one '
+                           'first.')
+            return -1
+
         if counter_channel is not None:
             self._counter_channel = counter_channel
         if photon_source is not None:
