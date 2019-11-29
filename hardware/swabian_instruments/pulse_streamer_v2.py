@@ -75,7 +75,7 @@ class PulseStreamer(Base, PulserInterface):
         self.sample_rate = 1e9
         self.to_be_streamed = None # sequence to be streamed like: self.pulsestreamer.stream(self.to_be_streamed)
 
-        # TODO: This can be done MUCH cleaner!!!
+        # TODO: This can probably be done MUCH cleaner!!!
         self.waveform_names = []
         self.waveform_channel_names = []
         self.ps_waveforms_dict = {} # Dict containing human-readable elements of the waveform eg. {(dummy_ens_ch1:[(1,10), (0,10), ...]), ...}
@@ -407,7 +407,7 @@ class PulseStreamer(Base, PulserInterface):
         # check if type of load_dict is list, and correct to dict format.
         if type(load_dict) == list:
             temp_dict = {}
-            for i in load_dict: #
+            for i in load_dict:
                 temp_dict[self._channel_to_index(i)+1] = i
             load_dict = temp_dict
 

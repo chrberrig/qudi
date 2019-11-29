@@ -89,9 +89,12 @@ class PulseStreamer(Base, PulserInterface):
 
         self.current_status = -1
         self.sample_rate = 1e9
-        self.waveform_names = []
-        self.ps_waveforms_dict = {}
         self.to_be_streamed = None
+
+        self.waveform_names = []
+        self.waveform_channel_names = []
+        self.ps_waveforms_dict = {}
+
         self.current_loaded_asset = {}, None
 
         self._channel = grpc.insecure_channel(self._pulsestreamer_ip + ':50051')
@@ -293,8 +296,8 @@ class PulseStreamer(Base, PulserInterface):
             waveforms.append(waveform_name)
             if waveform_name not in self.ps_waveforms_dict.keys():
                 self.ps_waveforms_dict[waveform_name] = samples #samples are still in raw format
-            # if waveform_name not in self.waveform_channel_names:
-            #     self.waveform_channel_names.append(waveform_name) # waveform_channel_names not used?
+            if waveform_name not in self.waveform_channel_names:
+                self.waveform_channel_names.append(waveform_name)
 
         if name not in self.waveform_names:
             self.waveform_names.append(name)
@@ -383,23 +386,33 @@ class PulseStreamer(Base, PulserInterface):
                              respective asset loaded into the channel, string describing the asset
                              type ('waveform' or 'sequence')
         """
-        print(load_dict)
         # ignore if no asset_name is given
         if load_dict is None:
             self.log.warning('"load_asset" called with asset_name = None.')
             return {}
 
-        # check if asset exists
-        saved_assets = self.get_waveform_names()
-        if load_dict not in saved_assets:
-            self.log.error('No waveform with name "{0}" found for PulseStreamer.\n'
-                                '"load_waveform" call ignored.'.format(load_dict))
+        if not isinstance(load_dict, (list, dict)):
+            self.log.error('Input object of type either Dict or List as input.')
             return -1
+
+        # check if type of load_dict is list, and correct to dict format.
+        if type(load_dict) == list:
+            temp_dict = {}
+            for i in load_dict:
+                temp_dict[self._channel_to_index(i) + 1] = i
+            load_dict = temp_dict
+
+        # check if asset exists, and write to Pulsestreamer if it does.
+        for channel, waveform in load_dict.items():
+            if waveform not in self.get_waveform_names():
+                self.log.error('No waveform with name "{0}" found for PulseStreamer.\n'
+                               '"load_waveform" call ignored.'.format(load_dict))
+                return -1
 
         # converting dictionary to fir format of internal functions:
         formatted_load_dict = {}
-        for chnl_num, chnl_wf_name in load_dict:
-            formatted_load_dict['d_ch' + chnl_num] = self.ps_waveforms_dict[chnl_wf_name]
+        for chnl_num, chnl_wf_name in load_dict.items():
+            formatted_load_dict['d_ch' + str(chnl_num)] = self.ps_waveforms_dict[chnl_wf_name]
 
         # writing list of pulse_messages
         msgs = []
@@ -498,16 +511,12 @@ class PulseStreamer(Base, PulserInterface):
 
         @return list: List of all uploaded waveform name strings in the device workspace.
         """
-
-        dict, format = self.current_loaded_asset
-        if format == 'waveform':
-            for key, val in dict.items():
-            return list(dict.values())
-        elif format == 'sequence':
-            pass
-            # print(self.current_loaded_asset) # for key, val in dict.items():
-        else:
-            return []
+        return self.waveform_channel_names
+        # dict, format = self.current_loaded_asset
+        # if format == 'waveform':
+        #     return list(dict.values())
+        # else:
+        #     return []
 
 
     def get_sequence_names(self):
@@ -520,8 +529,7 @@ class PulseStreamer(Base, PulserInterface):
         dict, format = self.current_loaded_asset
         # print(self.current_loaded_asset)
         if format == 'sequence':
-            for key, val in dict.items():
-                return [val]
+            return list(dict.values())
         else:
             return []
 
