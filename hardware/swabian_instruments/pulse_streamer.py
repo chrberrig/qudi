@@ -269,7 +269,7 @@ class PulseStreamer(Base, PulserInterface):
         @return (int, list): Number of samples written (-1 indicates failed process) and list of
                              created waveform names
         """
-        t0 = time.clock()
+        # t0 = time.clock()
         waveforms = list()
 
         # Sanity checks
@@ -293,17 +293,13 @@ class PulseStreamer(Base, PulserInterface):
                                'pulser.')
                 return -1, waveforms
 
-#         self._convert_digi_samples_to_quick_blocks(samples) # loads humanreadable ps compliant sequence into ps_waveform_dict
-#         self._array_to_ps_sequence(samples)
-        #print(time.clock() - t0)
         for chnl, samples in digital_samples.items():
             waveform_name = name + chnl[1:]
             waveforms.append(waveform_name)
             if waveform_name not in self.ps_waveform_dict.keys():
-                self.ps_waveform_dict[waveform_name] = samples #samples are still in raw format
+                self.ps_waveform_dict[waveform_name] = samples #samples are still in raw format. these are converted to "quick blocks" in Load func.
             if waveform_name not in self.waveform_channel_names:
                 self.waveform_channel_names.append(waveform_name)
-        #print(time.clock() - t0)
 
         if name not in self.waveform_names:
             self.waveform_names.append(name)
@@ -313,7 +309,6 @@ class PulseStreamer(Base, PulserInterface):
             temp_dict[self._channel_to_index(wf_name) + 1] = wf_name
 
         self.current_loaded_asset = temp_dict, 'waveform'
-        print(time.clock() - t0)
         return number_of_samples, waveforms
 
 
@@ -351,35 +346,6 @@ class PulseStreamer(Base, PulserInterface):
         self.sequence_master_dict[name] = self.ps_sequence_dict
 
         return len(sequence_parameters)
-
-
-        # self.sequence_names = []
-        # self.sequence_channel_names = [] # unused?
-        # self.ps_sequence_dict = {}  # Dict containing human-readable elements of the sequence eg. {(dummy_seq_ch1:[(1,10), (0,10), ...]), ...}
-
-
-        # name: dummy_seq
-        # sequence_parameters: [(('dummy_ens_ch1', 'dummy_ens_ch2', 'dummy_ens_ch3', 'dummy_ens_ch4', 'dummy_ens_ch5',
-        #                         'dummy_ens_ch6', 'dummy_ens_ch7', 'dummy_ens_ch8'),
-        #                        {'ensemble': 'dummy_ens', 'repetitions': 1, 'go_to': -1, 'event_jump_to': -1,
-        #                         'event_trigger': 'OFF', 'wait_for': 'OFF', 'flag_trigger': [], 'flag_high': []}), ((
-        #                                                                                                            'dummy_ens_ch1',
-        #                                                                                                            'dummy_ens_ch2',
-        #                                                                                                            'dummy_ens_ch3',
-        #                                                                                                            'dummy_ens_ch4',
-        #                                                                                                            'dummy_ens_ch5',
-        #                                                                                                            'dummy_ens_ch6',
-        #                                                                                                            'dummy_ens_ch7',
-        #                                                                                                            'dummy_ens_ch8'),
-        #                                                                                                            {
-        #                                                                                                                'ensemble': 'dummy_ens',
-        #                                                                                                                'repetitions': 0,
-        #                                                                                                                'go_to': -1,
-        #                                                                                                                'event_jump_to': -1,
-        #                                                                                                                'event_trigger': 'OFF',
-        #                                                                                                                'wait_for': 'OFF',
-        #                                                                                                                'flag_trigger': [],
-        #                                                                                                                'flag_high': []})]
 
     def load_waveform(self, load_dict):
         """ Loads a waveform to the specified channel of the pulsing device.
@@ -428,6 +394,7 @@ class PulseStreamer(Base, PulserInterface):
         formatted_load_dict = {}
         for chnl_num, chnl_wf_name in load_dict.items():
             formatted_load_dict['d_ch' + str(chnl_num)] = self.ps_waveform_dict[chnl_wf_name]
+        #TODO: the code below is SLOW!!
         t0 = time.clock()
         # writing list of pulse_messages
         msgs = []
