@@ -19,7 +19,8 @@ Copyright (c) the Qudi Developers. See the COPYRIGHT.txt file at the
 top-level directory of this distribution and at <https://github.com/Ulm-IQO/qudi/>
 """
 
-from core.module import Base, ConfigOption
+from core.module import Base
+from core.configoption import ConfigOption
 from interface.simple_laser_interface import SimpleLaserInterface
 from interface.simple_laser_interface import LaserState
 from interface.simple_laser_interface import ShutterState
@@ -39,8 +40,8 @@ class DLnsec(Base, SimpleLaserInterface):
         com_port: 'COM3'
     """
 
-    _modclass = 'DLnsec_laser'
-    _modtype = 'hardware'
+    # _modclass = 'DLnsec_laser'
+    # _modtype = 'hardware'
 
     _com_port = ConfigOption('com_port', missing='error')
 
@@ -58,7 +59,6 @@ class DLnsec(Base, SimpleLaserInterface):
 
 # --- Activation and connection ---
 
-# from obis_laser script
     def on_activate(self):
         """ Activate module.
         """
@@ -72,12 +72,12 @@ class DLnsec(Base, SimpleLaserInterface):
             return -1
         else:
             self._model_name = self.read_serial('*IDN')
+            self.get_current()
             return 0
 
     def on_deactivate(self):
         """ Deactivate module.
         """
-
         self.disconnect_laser()
 
     def connect_laser(self):
@@ -96,7 +96,6 @@ class DLnsec(Base, SimpleLaserInterface):
         self.off()
         self.ser.close()
 
-# from DLNSEC script
     def write_serial(self, command):
         """ Write command to serialport of instrument.
         """
@@ -127,7 +126,7 @@ class DLnsec(Base, SimpleLaserInterface):
             @return float: Laser power in watts
                 note that setpoint and actual val. is identically defined
         """
-        # return int(self.read_serial('PWR?'))*self.get_power_range()[1]
+        # self.power_setpoint = int(self.read_serial('PWR?'))*self.get_power_range()[1]
         return self.power_setpoint
 
     def get_power_setpoint(self):
@@ -146,6 +145,8 @@ class DLnsec(Base, SimpleLaserInterface):
         assert type(power) == float and self.get_power_range()[0] <= power <= self.get_power_range()[1]
         current = int(self.get_current_range()[1] * power / self.get_power_range()[1])
         self.set_current(current)
+        self.power_setpoint = power
+
         # self.current_setpoint = int(self.get_current_range()[1] * power / self.get_power_range()[1])
         # power = self.get_power_range()[1] * self.current_setpoint / self.get_current_range()[1]
         # self.power_setpoint = power
@@ -173,6 +174,9 @@ class DLnsec(Base, SimpleLaserInterface):
             @return float: laser current in current curent units
                 note that setpoint and actual val. is identically defined
         """
+        self.current_setpoint = float(self.read_serial('PWR?'))
+        power = self.get_power_range()[1] * self.current_setpoint / self.get_current_range()[1]
+        self.set_power(self, power)
         return self.current_setpoint
 
     def get_current_setpoint(self):

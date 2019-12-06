@@ -40,8 +40,10 @@ class T1Logic(GenericLogic):
     """This is the Logic class for ODMR."""
 
     # declare connectors
+    laser = Connector(interface='SimpleLaserInterface')
     fastcounter = Connector(interface='FastCounterInterface')
     pulser = Connector(interface='PulserInterface')
+    # mw_generator = Connector(interface='MicrowaveInterface')
     fitlogic = Connector(interface='FitLogic')
     savelogic = Connector(interface='SaveLogic')
 
@@ -49,10 +51,11 @@ class T1Logic(GenericLogic):
     # clock_frequency = StatusVar('clock_frequency', 200)
     default_repeat = 200
     init_duration = 1000
-    APD_delay = init_duration/2
+    counter_delay = init_duration/2
     interleave_duration = 1000 # tau
     collection_duration = 200
     intersequence_delay = 10000
+    # the above are all in units of ns.
 
 
     def __init__(self, config, **kwargs):
@@ -64,13 +67,18 @@ class T1Logic(GenericLogic):
         Initialisation performed during activation of the module.
         """
         # Get connectors
+        self.laser_hw = self.laser()
         self.fastcounter_hw = self.fastcounter()
         self.pulser_hw = self.pulser()
+        # self.mw_gen_hw = self.mw_generator()
         self._fit_logic = self.fitlogic()
         self._save_logic = self.savelogic()
 
         self._laser_channel = self.pulser_hw._laser_channel
         self._trigger_channel = self.fastcounter_hw._channel_detect
+        self._counter_channel = self.fastcounter_hw._channel_apd
+
+        self.set_up_laser()
 
 
     def on_deactivate(self):
@@ -89,58 +97,56 @@ class T1Logic(GenericLogic):
                                     'T1 measurement is still running but can not be stopped after 30 sec.')
                 break
         # Switch off hardware
+        self.laser_hw.off()
 
+    def set_up_laser(self):
+        self.laser_hw.on()
 
-    # def set_up_clock_channel(self, channel_index, freq):
-    #     self.pulser_hw._set_up_osc(channel_index, freq)
+    # def set_up_pulser(self):
+    #     pass
 
-
-    def set_up_pulser(self):
-        pass
-
-
-    def set_up_counter(self, bin_width_s=self.collection_duration, record_length_s=self.collection_duration, number_of_gates=0):
+    def set_up_counter(self, bin_width_s=None, record_length_s=None, number_of_gates=0):
         """
         setting up fastcounter hardware as counter for photons.
         :return: bin_width_s, record_length_s, number_of_gates
         """
         #return self.fastcounter_hw.configure(self, bin_width_s=self.collection_duration, record_length_s=self.collection_duration, number_of_gates=0)
 
+        if bin_width_s == None:
+            bin_width_s = self.collection_duration
+        if record_length_s == None:
+            record_length_s = self.collection_duration
+
         return self.fastcounter_hw.configure(self, bin_width_s=bin_width_s, record_length_s=record_length_s, number_of_gates=number_of_gates)
 
+    def set_up_mw_gen(self):
+        pass
 
 
     def start_measurement(self):
 
+        self.pulser_hw.pulser_on()
         return None
 
 
     def stop_measurement(self):
-
+        self.pulser_hw.pulser_off()
         return None
 
 
-    def make_time_list(self, time_min, increment, num_incr):
-        """
-        Makes list consisting of timeintervals, from minimum time interval, increment size of time interval, and number of increments.
-        :param int time_min:    minimum time interval
-        :param int increment:   increment size of time interval
-        :param int num_incr:    number of increments
-        :return list:
-        """
-        return [time_min + i*increment for i in range(num_incr+1)]
-
-
-    def generate_measurement_sequences(self, parameters, time_sweep, repeat=self.default_repeat, sequence_name='T1_measuerment_sequence'):
+    def generate_measurement_sequences(self, parameters, time_sweep, repeat=0, sequence_name='T1_measurement_sequence'):
         """
         Genarates pulse blocks and combine them to pulse sequence
         :param parameters:  tuple containing:
-                            (initializasion_duration, counter_delay, interleave_duration or tau, collection_duration, intersequence_delay) in units of ns
+                            (initializasion_duration_in_ns, counter_delay_in_ns, interleave_duration or tau_in_ns, collection_duration_in_ns, intersequence_delay_in_ns) in units of ns
         :param time_sweep:  tuple containing:
                             (increment_size, number_of_increments)
         :param repeat:      Number of repeats for each choice of interleave-time
         :return str:        sequence name of created sequence.
         """
+        if repeat == 0:
+            repeat = self.default_repeat
+
         # defaultparameters = (self.init_duration, self.counter_delay, self.interleave_duration, self.collection_duration, self.intersequence_delay)
         # parameters = tuple(map(lambda x, y: y if y is not None else x, defaultparameters, parameters))
         if self.counter_delay > self.init_duration:
@@ -156,7 +162,7 @@ class T1Logic(GenericLogic):
             seq_after_init = [(interleave, 0), (parameters[3], 1), (parameters[4], 0)]
             _sequence_laser = [(parameters[0], 1)] + seq_after_init #)*repeat
             _sequence_counter = [(parameters[1], 0), (parameters[0] - parameters[1], 1)] + seq_after_init #)*repeat
-            waveform_name = 'T1_measuerment_sequence_interleave{0}ns'.format(interleave)
+            waveform_name = 'T1_measuerment_sequence_interleave_{0}ns'.format(interleave)
 
             # tab this section out if this should be done in waveform format "<= waveform" and "=> sequence"
             self.measurement_sequence_laser = self._seq_to_array(_sequence_laser)
@@ -166,20 +172,19 @@ class T1Logic(GenericLogic):
             else:
                 self.log.error('Error occurred in sequence writing process. Process terminated.')
             empty_array = np.asarray([0]*measurement_duration)
-            # create wave form and write it.
+            # create waveform and write it.
             digi_samples = {}
             channel_seqs = []
-            for chnl, val in self.pulser_hw.get_active_channels():
-                channel_seqs.append(waveform_name + '_' + chnl)
+            for chnl, val in self.pulser_hw.get_active_channels().items():
+                channel_seqs.append(waveform_name + chnl[-4:])
                 ch_index = self.pulser_hw._channel_to_index(chnl) - 1
                 if ch_index == self._laser_channel:
                     digi_samples[chnl] = self.measurement_sequence_laser
-                elif ch_index == self._laser_channel:
+                elif ch_index == self._counter_channel:
                     digi_samples[chnl] = self.measurement_sequence_counter
                 else:
                     digi_samples[chnl] = empty_array
             self.pulser_hw.write_waveform(waveform_name, {}, digi_samples, True, True, measurement_duration)
-
             # make tuple format for loading into sequence.
             channel_seqs = tuple(channel_seqs)
             seq_parameters_dict = {}
@@ -187,20 +192,19 @@ class T1Logic(GenericLogic):
             seq_parameters_dict['repetitions'] = repeat
 
             parameter_list.append((channel_seqs, seq_parameters_dict))
-
-        # make sequence consisting of all waveforms.
+        # make sequence consisting of all waveforms and write it.
         self.pulser_hw.write_sequence(sequence_name, parameter_list)
 
-        return sequence_name
+        return sequence_name, parameter_list
 
-
-    def load_sequence_to_pulser(self, sequence_name='T1_measuerment_sequence'):
+    def load_sequence_to_pulser(self, sequence_name, parameter_list):
         """
         Load sequence into pulser.
         :param str sequence_name: name of already written sequence to load into pulsestreamer
-        :return:
+        :return int err_code: error code; 0:OK, -1:err.
         """
-        return self.pulser_hw.load_sequence(sequence_name)
+        self.pulser_hw.load_sequence(sequence_name)
+        return 0
         # for chnl, val in self.get_active_channels():
         #     ch_index = self.pulser_hw._channel_to_index(chnl)-1
         #     if ch_index == self._laser_channel:
@@ -211,10 +215,48 @@ class T1Logic(GenericLogic):
         #
         # pass
 
+    def perform_measurement_routine(self, parameters, time_sweep, repeat=0, sequence_name='T1_measuerment_sequence'):
 
-    def perform_measurement_routine(self, parameters, time_sweep, repeat=self.default_repeat, sequence_name='T1_measuerment_sequence'):
-        pass
+        if repeat == None:
+            repeat = self.default_repeat
 
+        seq_name, parameter_list = self.generate_measurement_sequences(self, parameters, time_sweep, repeat=repeat, sequence_name='T1_measurement_sequence')
+        self.load_sequence_to_pulser(self, seq_name, parameter_list)
+
+
+
+
+    # def convert_to_sequence_generator_logic_format(self, measurement_duration):
+    #     digi_samples = {}
+    #     channel_seqs = []
+    #     for chnl, val in self.pulser_hw.get_active_channels():
+    #         channel_seqs.append(waveform_name + '_' + chnl)
+    #         ch_index = self.pulser_hw._channel_to_index(chnl) - 1
+    #         if ch_index == self._laser_channel:
+    #             digi_samples[chnl] = self.measurement_sequence_laser
+    #         elif ch_index == self._laser_channel:
+    #             digi_samples[chnl] = self.measurement_sequence_counter
+    #         else:
+    #             digi_samples[chnl] = empty_array
+    #     self.pulser_hw.write_waveform(waveform_name, {}, digi_samples, True, True, measurement_duration)
+    #
+    #     # make tuple format for loading into sequence.
+    #     channel_seqs = tuple(channel_seqs)
+    #     seq_parameters_dict = {}
+    #     seq_parameters_dict['ensemble'] = waveform_name
+    #     seq_parameters_dict['repetitions'] = repeat
+    #
+    #     return channel_seqs, seq_parameters_dict
+
+    def make_time_list(self, time_min, increment, num_incr):
+        """
+        Makes list consisting of timeintervals, from minimum time interval, increment size of time interval, and number of increments.
+        :param int time_min:    minimum time interval
+        :param int increment:   increment size of time interval
+        :param int num_incr:    number of increments
+        :return list:
+        """
+        return [time_min + i*increment for i in range(num_incr+1)]
 
     def _seq_to_array(self, seq):
         """

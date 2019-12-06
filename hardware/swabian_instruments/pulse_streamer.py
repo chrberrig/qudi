@@ -297,7 +297,7 @@ class PulseStreamer(Base, PulserInterface):
             waveform_name = name + chnl[1:]
             waveforms.append(waveform_name)
             if waveform_name not in self.ps_waveform_dict.keys():
-                self.ps_waveform_dict[waveform_name] = samples #samples are still in raw format. these are converted to "quick blocks" in Load func.
+                self.ps_waveform_dict[waveform_name] = samples #samples are still in raw format. These are converted to "quick blocks" in Load func.
             if waveform_name not in self.waveform_channel_names:
                 self.waveform_channel_names.append(waveform_name)
 
@@ -838,7 +838,6 @@ class PulseStreamer(Base, PulserInterface):
             return int(ch[-1]) - 1
         else:
             self.log.error('Channel not given or ill-defined')
-
 
 
 

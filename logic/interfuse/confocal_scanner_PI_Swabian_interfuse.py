@@ -32,8 +32,8 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
     """This is the Interface class to define the controls for the simple
     microwave hardware.
     """
-    _modclass = 'confocalscannerinterface'
-    _modtype = 'hardware'
+    # _modclass = 'confocalscannerinterface'
+    # _modtype = 'hardware'
 
     # connectors
     fitlogic = Connector(interface='FitLogic')
@@ -126,7 +126,7 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
         self._scanner_hw.set_voltage_range(myrange=myrange)
         return 0
 
-    def set_up_scanner_clock(self, clock_frequency = None, clock_channel = None):
+    def set_up_scanner_clock(self, clock_frequency=None, clock_channel = None):
         """ Configures the hardware clock of the NiDAQ card to give the timing.
         This is a direct pass-through to the scanner HW
 
@@ -137,7 +137,7 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
         """
         self.clock_frequency = clock_frequency
         self._counter_hw.set_up_clock(self.clock_frequency, None)
-        print('interfuse freq = ' + str(self.clock_frequency))
+        # print('interfuse freq = ' + str(self.clock_frequency))
 
         # self._pulser_hw.clock_channel = # clock_channel
         # if clock_frequency =! 167e6:
@@ -147,7 +147,7 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
         #return self._scanner_hw.set_up_scanner_clock(clock_frequency=clock_frequency, clock_channel=clock_channel)
         return 0
 
-    def set_up_scanner(self, counter_channel = None, photon_source = None, clock_channel = None, scanner_ao_channels = None):
+    def set_up_scanner(self, counter_channel=None, photon_source=None, clock_channel=None, scanner_ao_channels=None):
         """ Configures the actual scanner with a given clock.
 
         TODO this is not technically required, because the spectrometer scanner does not need clock synchronisation.
@@ -238,7 +238,7 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
 
         self._counter_hw.start_measure()
         for i in range(self._line_length):
-            t0 = time.clock()
+            #t0 = time.clock()
             coords = line_path[:, i]
             # self._scanner_hw.scanner_set_position(x=coords[0], y=coords[1], z=coords[2], a=coords[3])
             self.scanner_set_position(x=coords[0], y=coords[1], z=coords[2], a=coords[3])
@@ -252,8 +252,8 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
 
             # updating_current position.
             self._current_position = list(line_path[:, -1])
-            print(time.clock() - t0)
-            print(count_data[i])
+            #print(time.clock() - t0)
+            #print(count_data[i])
         self._counter_hw.stop_measure()
 
         return np.array([[count_data[i]] for i in range(self._line_length)])
