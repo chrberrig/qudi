@@ -79,6 +79,7 @@ class T1Logic(GenericLogic):
         self._laser_channel = self.pulser_hw._laser_channel
         self._trigger_channel = self.fastcounter_hw._channel_detect
         self._counter_channel = self.fastcounter_hw._channel_apd
+        # self._mw_gen_channel =
 
         self.set_up_laser()
 
@@ -125,22 +126,88 @@ class T1Logic(GenericLogic):
         pass
 
 
-    def start_measurement(self):
+    # def start_measurement(self):
+    #
+    #     self.pulser_hw.pulser_on()
+    #     return None
+    #
+    #
+    # def stop_measurement(self):
+    #     self.pulser_hw.pulser_off()
+    #     return None
 
-        self.pulser_hw.pulser_on()
-        return None
 
-
-    def stop_measurement(self):
-        self.pulser_hw.pulser_off()
-        return None
-
-
-    def make_waveform(self, parameters):
-        seq_after_init = [(interleave, 0), (parameters[3], 1), (parameters[4], 0)]
+    def generate_waveform(self, wf_name, parameters):
+        """
+        Genarates pulse waveforms for T1 measuremens wrt. the given parameters.
+        :param parameters:  str defining the waveform name.
+        :param parameters:  tuple containing:
+                            (initializasion_duration_in_ns, counter_delay_in_ns, interleave_duration or tau_in_ns, collection_duration_in_ns, intersequence_delay_in_ns) in units of ns
+        :return tuple:      tuple containing: waveform_name, tuple(channel_seqs_names), dict(digi_samples)
+        """
+        seq_after_init = [(parameters[2], 0), (parameters[3], 1), (parameters[4], 0)]
         _sequence_laser = [(parameters[0], 1)] + seq_after_init
         _sequence_counter = [(parameters[1], 0), (parameters[0] - parameters[1], 1)] + seq_after_init
-        waveform_name = sequence_name + '_interleave_{0}ns'.format(interleave)
+        # _sequence_mw_gen = [(parameters[1], 0), (parameters[0] - parameters[1], 1)] + seq_after_init
+        waveform_name = wf_name + '_interleave_{0}ns'.format(parameters[2])
+
+        # tab this section out if this should be done in waveform format "<= waveform" and "=> sequence"
+        self.measurement_sequence_laser = self._seq_to_array(_sequence_laser)
+        self.measurement_sequence_counter = self._seq_to_array(_sequence_counter)
+        # self.measurement_sequence_mw_gen = self._seq_to_array(_sequence_counter)
+        if len(self.measurement_sequence_laser) == len(self.measurement_sequence_laser):
+            measurement_duration = len(self.measurement_sequence_laser)
+        else:
+            self.log.error('Error occurred in sequence writing process. Process terminated.')
+        # create waveform and write it.
+        empty_array = np.array([0] * measurement_duration)
+        digi_samples = {}
+        channel_seqs = []
+        for chnl, val in self.pulser_hw.get_active_channels().items():
+            channel_seqs.append(waveform_name + chnl[-4:])
+            ch_index = self._channel_to_index(chnl)
+            if ch_index == self._laser_channel:
+                digi_samples[chnl] = self.measurement_sequence_laser
+            elif ch_index == self._trigger_channel:
+                digi_samples[chnl] = self.measurement_sequence_counter
+            # elif ch_index == self._mw_gen_channel:
+            #     digi_samples[chnl] = self.measurement_sequence_mw_gen
+            else:
+                digi_samples[chnl] = empty_array
+        self.pulser_hw.write_waveform(waveform_name, {}, digi_samples, True, True, measurement_duration)
+        return waveform_name, tuple(channel_seqs), digi_samples
+
+    def generate_waveform_load_dict(self, waveform_name, parameters):
+        """
+        generates load_dict for wavefom in accordence w. the parameters
+        :param parameters:  str defining the waveform name.
+        :param parameters:  tuple containing:
+                            (initializasion_duration_in_ns, counter_delay_in_ns, interleave_duration or tau_in_ns, collection_duration_in_ns, intersequence_delay_in_ns) in units of ns
+        :return:            Dictionaries containing as keys the generic channel indices and as values the corresponding waveform channel-names.
+        """
+        load_dict = {}
+        if type(parameters) == tuple:
+            waveform_name, channel_seqs, digi_samples = self.generate_waveform(waveform_name, parameters)
+            for wf_chnl_name in channel_seqs:
+                load_dict[int(wf_chnl_name[-1])] = wf_chnl_name
+        elif type(parameters) == list:
+            for channel_seqs, seq_parameters_dict in parameters:
+                if waveform_name == seq_parameters_dict['ensemble']:
+                    for ch in channel_seqs:
+                        load_dict[self._channel_to_index(ch) + 1] = ch
+        return load_dict
+
+    def load_waveform_to_pulser(self, waveform_name, parameters):
+        """
+        Loads waveform into pulser.
+        :param waveform_name str: name of (channel-collection of) waveform(s) to be loaded into pulser e.g. 'dummy_ens', not 'dummy_ens_ch1' etc.
+        :param parameter_list: parameter list of the form generated in generate_measurement_sequences-function.
+        :return: error code; 0: OK, -1: error
+        """
+        load_dict = self.generate_waveform_load_dict(waveform_name, parameters)
+        return self.pulser_hw.load_waveform(load_dict)
+        # return 0
+
 
     def generate_measurement_sequences(self, parameters, time_sweep, repeat=0, sequence_name='T1_measurement_sequence'):
         """
@@ -152,49 +219,18 @@ class T1Logic(GenericLogic):
         :param repeat:      Number of repeats for each choice of interleave-time
         :return str:        sequence name of created sequence.
         """
-        if repeat == 0:
-            repeat = self.default_repeat
-
-        # defaultparameters = (self.init_duration, self.counter_delay, self.interleave_duration, self.collection_duration, self.intersequence_delay)
-        # parameters = tuple(map(lambda x, y: y if y is not None else x, defaultparameters, parameters))
+        # if repeat == 0:
+        #     repeat = self.default_repeat
         if self.counter_delay > self.init_duration:
             self.log.warn('APD is not activated during initializasion')
             self.counter_delay = 0
-
         # crate sequence
-        # TODO: This is pulsestreamer specific. This should of course be generalized to all pulsers... This might be doable using the pulser gui, looking for a specific file etc...
-        # TODO: What is pulsestreamer specific, is that only the arguments necessay for the pulsestreamer_v2 is used in the write/load_waveform/sequence... this needs to be generalized.
         parameter_list = []
         timelist = self.make_time_list(parameters[2], time_sweep[0], time_sweep[1])
         for interleave in timelist:
-            seq_after_init = [(interleave, 0), (parameters[3], 1), (parameters[4], 0)]
-            _sequence_laser = [(parameters[0], 1)] + seq_after_init
-            _sequence_counter = [(parameters[1], 0), (parameters[0] - parameters[1], 1)] + seq_after_init
-            waveform_name = sequence_name + '_interleave_{0}ns'.format(interleave)
-
-            # tab this section out if this should be done in waveform format "<= waveform" and "=> sequence"
-            self.measurement_sequence_laser = self._seq_to_array(_sequence_laser)
-            self.measurement_sequence_counter = self._seq_to_array(_sequence_counter)
-            if len(self.measurement_sequence_laser) == len(self.measurement_sequence_laser):
-                measurement_duration = len(self.measurement_sequence_laser)
-            else:
-                self.log.error('Error occurred in sequence writing process. Process terminated.')
-            # create waveform and write it.
-            empty_array = np.array([0] * measurement_duration)
-            digi_samples = {}
-            channel_seqs = []
-            for chnl, val in self.pulser_hw.get_active_channels().items():
-                channel_seqs.append(waveform_name + chnl[-4:])
-                ch_index = self.pulser_hw._channel_to_index(chnl)
-                if ch_index == self._laser_channel:
-                    digi_samples[chnl] = self.measurement_sequence_laser
-                elif ch_index == self._trigger_channel:
-                    digi_samples[chnl] = self.measurement_sequence_counter
-                else:
-                    digi_samples[chnl] = empty_array
-            self.pulser_hw.write_waveform(waveform_name, {}, digi_samples, True, True, measurement_duration)
-            # make tuple format for loading into sequence.
-            channel_seqs = tuple(channel_seqs)
+            loopparameters = (parameters[0], parameters[1], interleave, parameters[3], parameters[4])
+            waveform_name, channel_seqs, digi_samples = self.generate_waveform(sequence_name, loopparameters)
+            print(digi_samples)
             seq_parameters_dict = {}
             seq_parameters_dict['ensemble'] = waveform_name
             seq_parameters_dict['repetitions'] = repeat
@@ -203,32 +239,6 @@ class T1Logic(GenericLogic):
         self.pulser_hw.write_sequence(sequence_name, parameter_list)
         return sequence_name, parameter_list
 
-    def load_sequence_to_pulser(self, sequence_name):
-        """
-        Load sequence into pulser.
-        :param str sequence_name: name of already written sequence to load into pulsestreamer
-        :return int err_code: error code; 0:OK, -1:err.
-        """
-        self.pulser_hw.load_sequence(sequence_name)
-        return 0
-
-    def load_waveform_to_pulser(self, waveform_name, parameter_list):
-        """
-        Loads waveform into pulser.
-        :param waveform_name str: name of (channel-collection of) waveform(s) to be loaded into pulser e.g. 'dummy_ens', not 'dummy_ens_ch1' etc.
-        :param parameter_list: parameter list of the form generated in generate_measurement_sequences-function.
-        :return: error code; 0: OK, -1: error
-        """
-        load_dict = {}
-        for channel_seqs, seq_parameters_dict in parameter_list:
-            if waveform_name == seq_parameters_dict['ensemble']:
-                for ch in channel_seqs:
-                    # print(self._channel_to_index(ch))
-                    # print(ch)
-                    load_dict[self._channel_to_index(ch)+1] = ch
-
-        self.pulser_hw.load_waveform(load_dict)
-        return 0
 
     def perform_measurement_routine(self, parameters, time_sweep, repeat=0, sequence_name='T1_measuerment_sequence'):
         """
@@ -240,29 +250,30 @@ class T1Logic(GenericLogic):
         :param repeat:      Number of repeats for each choice of interleave-time
         :return str:        sequence name of created sequence.
         """
-        if repeat == 0:
-            repeat = self.default_repeat
+        # if repeat == 0:
+        #     repeat = self.default_repeat
 
-        self.fastcounter_hw.configure(parameters[3] * 1e-9, parameters[3] * 1e-9, 0)
+        self.fastcounter_hw.configure(parameters[3] * 1e-11, parameters[3] * 1e-9, repeat)
         data_dict = {}
         seq_name, parameter_list = self.generate_measurement_sequences(parameters, time_sweep, repeat, sequence_name)
         for channel_seqs, seq_parameters_dict in parameter_list:
-            print(seq_parameters_dict['ensemble'])
-            print(parameter_list)
+            # print(seq_parameters_dict['ensemble'])
+            # print(parameter_list)
             self.load_waveform_to_pulser(seq_parameters_dict['ensemble'], parameter_list)
             data_dict[seq_parameters_dict['ensemble']] = []
-            for rep in range(repeat):
-                self.pulser_hw.pulser_on()
+            self.pulser_hw.pulser_on()
+            for rep in range(repeat+1):
                 time.sleep(parameters[3]*1e-9)
                 data_dict[seq_parameters_dict['ensemble']].append(self.fastcounter_hw.get_data_trace())
         self.pulser_hw.pulser_off()
         return data_dict
+        # why do we only get 0 counts?
 
 
 
 
 
-
+# ============== internal funct.s ===============
 
     def make_time_list(self, time_min, increment, num_incr):
         """
@@ -308,3 +319,33 @@ class T1Logic(GenericLogic):
             return int(ch[-1]) - 1
         else:
             self.log.error('Channel not given or ill-defined')
+
+            # defaultparameters = (self.init_duration, self.counter_delay, self.interleave_duration, self.collection_duration, self.intersequence_delay)
+            # parameters = tuple(map(lambda x, y: y if y is not None else x, defaultparameters, parameters))
+
+            # def load_sequence_to_pulser(self, sequence_name):
+            #     """
+            #     Load sequence into pulser.
+            #     :param str sequence_name: name of already written sequence to load into pulsestreamer
+            #     :return int err_code: error code; 0:OK, -1:err.
+            #     """
+            #     self.pulser_hw.load_sequence(sequence_name)
+            #     return 0
+
+            # def load_waveform_from_seq_to_pulser(self, waveform_name, parameter_list):
+            #     """
+            #     Loads waveform into pulser.
+            #     :param waveform_name str: name of (channel-collection of) waveform(s) to be loaded into pulser e.g. 'dummy_ens', not 'dummy_ens_ch1' etc.
+            #     :param parameter_list: parameter list of the form generated in generate_measurement_sequences-function.
+            #     :return: error code; 0: OK, -1: error
+            #     """
+            #     load_dict = {}
+            #     for channel_seqs, seq_parameters_dict in parameter_list:
+            #         if waveform_name == seq_parameters_dict['ensemble']:
+            #             for ch in channel_seqs:
+            #                 # print(self._channel_to_index(ch))
+            #                 # print(ch)
+            #                 load_dict[self._channel_to_index(ch)+1] = ch
+            #
+            #     self.pulser_hw.load_waveform(load_dict)
+            #     return 0

@@ -107,8 +107,9 @@ class TimeTaggerFastCounter(Base, FastCounterInterface):
         """
         if self.module_state() == 'locked':
             self.pulsed.stop()
-        self.pulsed.clear()
-        self.pulsed = None
+        if hasattr(self, 'pulsed'):
+            self.pulsed.clear()
+            self.pulsed = None
 
     def configure(self, bin_width_s, record_length_s, number_of_gates=0):
 
