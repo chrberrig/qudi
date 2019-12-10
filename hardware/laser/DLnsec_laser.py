@@ -126,8 +126,12 @@ class DLnsec(Base, SimpleLaserInterface):
             @return float: Laser power in watts
                 note that setpoint and actual val. is identically defined
         """
-        # self.power_setpoint = int(self.read_serial('PWR?'))*self.get_power_range()[1]
-        return self.power_setpoint
+        if self.lstate == LaserState.ON:
+            self.current_setpoint = float(self.read_serial('PWR?'))
+            self.power_setpoint = self.current_to_power(self.current_setpoint)
+            return self.power_setpoint
+        else:
+            return float(0)
 
     def get_power_setpoint(self):
         """ Return optical power setpoint.
@@ -143,14 +147,9 @@ class DLnsec(Base, SimpleLaserInterface):
             @return float: actual new power setpoint
         """
         assert type(power) == float and self.get_power_range()[0] <= power <= self.get_power_range()[1]
-        current = int(self.get_current_range()[1] * power / self.get_power_range()[1])
+        current = self.power_to_current(power)
         self.set_current(current)
-        self.power_setpoint = power
-
-        # self.current_setpoint = int(self.get_current_range()[1] * power / self.get_power_range()[1])
-        # power = self.get_power_range()[1] * self.current_setpoint / self.get_current_range()[1]
-        # self.power_setpoint = power
-        # self.write_serial('PWR' + str(self.current_setpoint))
+        self.power_setpoint = self.current_to_power(current)
         # self.get_extra_info()
         return self.power_setpoint
 
@@ -171,13 +170,15 @@ class DLnsec(Base, SimpleLaserInterface):
 
     def get_current(self):
         """ Get current laser current
-            @return float: laser current in current curent units
+            @return float: laser current in current current units
                 note that setpoint and actual val. is identically defined
         """
-        self.current_setpoint = float(self.read_serial('PWR?'))
-        power = self.get_power_range()[1] * self.current_setpoint / self.get_current_range()[1]
-        self.set_power(self, power)
-        return self.current_setpoint
+        if self.lstate == LaserState.ON:
+            self.current_setpoint = float(self.read_serial('PWR?'))
+            self.power_setpoint = self.current_to_power(self.current_setpoint)
+            return self.current_setpoint
+        else:
+            return float(0)
 
     def get_current_setpoint(self):
         """ Get laser curent setpoint
@@ -194,8 +195,8 @@ class DLnsec(Base, SimpleLaserInterface):
         assert type(current) == float and self.get_current_range()[0] <= current <= self.get_current_range()[1]
         self.write_serial('PWR ' + str(int(current)))
         self.current_setpoint = float(self.read_serial('PWR?'))
-        self.power_setpoint = float(self.get_power_range()[1]*self.current_setpoint/self.get_current_range()[1])
-        return self.current_setpoint, self.power_setpoint
+        self.power_setpoint = self.current_to_power(self.power_setpoint)
+        return self.current_setpoint
 
 # --- Control modes and laser states ---
 
@@ -317,4 +318,19 @@ class DLnsec(Base, SimpleLaserInterface):
     def get_error(self):
         return self.read_serial('ERR?')
 
-    # TODO: Import additional functions from DLnSec script from Swabian inst. for additional functionality...
+    def current_to_power(self, current):
+        """
+        :param current float: integer from 0 to 100, describing currnet in % of max current.
+        :return float: power corresponding to current
+        """
+        power = float(self.get_power_range()[1] * current / self.get_current_range()[1])
+        return power
+
+    def power_to_current(self, power):
+        """
+
+        :param power float: float corresponding to power output in W
+        :return float: integer from 0 to 100, describing currnet in % of max current.
+        """
+        current = float(int(self.get_current_range()[1] * power / self.get_power_range()[1]))
+        return current

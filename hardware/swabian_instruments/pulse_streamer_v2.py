@@ -277,7 +277,7 @@ class PulseStreamer(Base, PulserInterface):
                              created waveform names
         """
 
-        print(name, digital_samples, total_number_of_samples)
+        # print(name, digital_samples, total_number_of_samples)
 
         waveforms = list()
 
@@ -338,7 +338,7 @@ class PulseStreamer(Base, PulserInterface):
 
         @return: int, number of sequence steps written (-1 indicates failed process)
         """
-        print(name, sequence_parameters)
+        # print(name, sequence_parameters)
         # constructing the ps sequence elements (human-readable to be loaded into the channels)
         init = True
         for channels, dict in sequence_parameters:
