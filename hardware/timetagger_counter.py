@@ -87,7 +87,7 @@ class TimeTaggerCounter(Base, SlowCounterInterface):
         """
 
         self._count_frequency = clock_frequency
-        print('timetagger freq = ' + str(self._count_frequency))
+        print('timetagger freqency: ' + str(self._count_frequency))
         return 0
 
     def set_up_counter(self,

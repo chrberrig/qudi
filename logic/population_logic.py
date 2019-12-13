@@ -47,18 +47,19 @@ class T1Logic(GenericLogic):
     fitlogic = Connector(interface='FitLogic')
     savelogic = Connector(interface='SaveLogic')
 
+    laser_delay = 50
+    laser_ontime = 1000
+    laser_power = 5
+    intersequence_delay = 10000
+
     # config option
     # clock_frequency = StatusVar('clock_frequency', 200)
-    default_repeat = 9
-
-    size_increments = 0
-    num_increments = 0
-
-    init_duration = 2#1000
+    default_repeat = 2000
+    init_duration = 1000
     counter_delay = init_duration
-    interleave_duration = 1000#500 # tau
-    collection_duration = 1000#500# 200
-    intersequence_delay = 2#1000
+    interleave_duration = 500 # tau
+    collection_duration = 200
+    intersequence_delay = 10000
     # the above are all in units of ns.
 
 
@@ -86,33 +87,11 @@ class T1Logic(GenericLogic):
         self._counter_channel = self.fastcounter_hw._channel_apd
         # self._mw_gen_channel =
 
-        self.log.info('TimeTagger (fast counter) configured to use  channel {0} as counter input channel'
-                      .format(self.fastcounter_hw._channel_apd))
-        self.log.info('TimeTagger (fast counter) configured to use  channel {0} as gating channel'
-                      .format(self.fastcounter_hw._channel_detect))
-        self.log.info('PulseStreamer configured to use  channel {0} as laser channel'
-                      .format(self._laser_channel))
-        self.log.info('PulseStreamer configured to use  channel {0} as trigger channel fr TT gating'
-                      .format(self._trigger_channel))
-
-
         print('self._laser_channel: ' + str(self._laser_channel))
         print('self._trigger_channel: ' + str(self._trigger_channel))
         print('self._counter_channel: ' + str(self._counter_channel))
-        print("waiting_time: " + str(sum((self.init_duration, self.interleave_duration, self.collection_duration, self.intersequence_delay)) * self.default_repeat) + ' ns')
-
 
         self.set_up_laser()
-
-        self.set_up_counter()
-        self.fastcounter_hw.test_signal(self._counter_channel, True) #this line is to be uncommented only during testing !!!
-        self.fastcounter_hw.start_measure()
-        time.sleep(1)
-        self.pulser_hw.set_constatnt_state([self._trigger_channel])
-        time.sleep(sum((self.init_duration, self.interleave_duration, self.collection_duration, self.intersequence_delay)) * self.default_repeat * 1e-9)
-        print(self.fastcounter_hw.get_data_trace())
-        print(sum(self.fastcounter_hw.get_data_trace()[0]))
-        self.fastcounter_hw.stop_measure()
 
 
     def on_deactivate(self):
@@ -138,37 +117,52 @@ class T1Logic(GenericLogic):
         self.laser_hw.on()
 
 
-    def set_up_counter(self, bin_width_s=0, record_length_s=0, number_of_gates=0):
+    # def set_up_pulser(self):
+    #     pass
+
+
+    def set_up_counter(self, bin_width_s=None, record_length_s=None, number_of_gates=0):
         """
         setting up fastcounter hardware as counter for photons.
         :return: bin_width_s, record_length_s, number_of_gates
         """
         #return self.fastcounter_hw.configure(self, bin_width_s=self.collection_duration, record_length_s=self.collection_duration, number_of_gates=0)
-        if bin_width_s == 0:
-            bin_width_s = self.collection_duration*1e-10
-        if record_length_s == 0:
-            record_length_s = self.collection_duration*1e-9
-        self.fastcounter_hw.configure(bin_width_s, record_length_s, number_of_gates)
-        return 0
+
+        if bin_width_s == None:
+            bin_width_s = self.collection_duration
+        if record_length_s == None:
+            record_length_s = self.collection_duration
+
+        return self.fastcounter_hw.configure(self, bin_width_s=bin_width_s, record_length_s=record_length_s,
+                                             number_of_gates=number_of_gates)
 
     def set_up_mw_gen(self):
         pass
 
 
-    def generate_T1_waveform(self, wf_name, parameters):
+    # def start_measurement(self):
+    #     self.pulser_hw.pulser_on()
+    #     return None
+    #
+    #
+    # def stop_measurement(self):
+    #     self.pulser_hw.pulser_off()
+    #     return None
+
+
+    def generate_population_waveform(self, wf_name, parameters):
         """
         Genarates pulse waveforms for T1 measuremens wrt. the given parameters.
-        :param wf_name:  str defining the waveform name.
+        :param wf_name:     str defining the waveform name.
         :param parameters:  tuple containing:
-                            (initializasion_duration_in_ns, counter_delay_in_ns, interleave_duration or tau_in_ns, collection_duration_in_ns, intersequence_delay_in_ns) in units of ns
+                            (laser_delay, laser_ontime_in_ns, laser_power, intersequence_delay_in_ns) in units of ns
         :return tuple:      tuple containing: waveform_name, tuple(channel_seqs_names), dict(digi_samples)
         """
-        time.clock()
-        seq_after_init = [(parameters[2], 0), (parameters[3], 1)] #, (parameters[4], 0)]
-        _sequence_laser = [(parameters[4], 0), (parameters[0], 1)] + seq_after_init
-        _sequence_counter = [((parameters[4] + parameters[1]), 0), (parameters[0] - parameters[1], 1)] + seq_after_init
+        seq_common = [(parameters[1], 0), (parameters[1], 1), (parameters[3], 0)]
+        _sequence_laser = seq_common
+        _sequence_counter = seq_common
         # _sequence_mw_gen = [(parameters[1], 0), (parameters[0] - parameters[1], 1)] + seq_after_init
-        waveform_name = wf_name + '_interleave_{0}ns'.format(parameters[2])
+        waveform_name = wf_name + '_lasercurrent_{0}%'.format(parameters[2])
 
         # tab this section out if this should be done in waveform format "<= waveform" and "=> sequence"
         self.measurement_sequence_laser = self._seq_to_array(_sequence_laser)
@@ -197,43 +191,41 @@ class T1Logic(GenericLogic):
         return waveform_name, tuple(channel_seqs), digi_samples
 
 
-    def generate_T1_measurement_sequences(self, parameters, param_sweep, repeat=0, sequence_name='T1_measurement_sequence'):
+    def generate_population_measurement_sequences(self, parameters, param_sweep, repeat=0, sequence_name='population_measurement_sequence'):
         """
         Genarates pulse blocks and combine them to pulse sequence
         :param parameters:  tuple containing:
-                            (initializasion_duration_in_ns, counter_delay_in_ns, interleave_duration or tau_in_ns, collection_duration_in_ns, intersequence_delay_in_ns) in units of ns
+                            (laser_delay, laser_ontime_in_ns, laser_power, intersequence_delay_in_ns) in units of ns
         :param param_sweep:  tuple containing:
                             (increment_size, number_of_increments)
         :param repeat:      Number of repeats for each choice of interleave-time
         :return str:        sequence name of created sequence.
         """
-        # if repeat == 0:
-        #     repeat = self.default_repeat
-        if self.counter_delay > self.init_duration:
-            self.log.warn('APD is not activated during initializasion')
-            self.counter_delay = 0
+        if param_sweep[1] > 100 or param_sweep[0] > 100:
+            self.log.error('Error occurred in sequence writing process. Process terminated.'
+                           'Laser sweep parameters are ill defined.')
         # crate sequence
         parameter_list = []
-        timelist = self.make_param_sweep_list(parameters[2], param_sweep[0], param_sweep[1])
-        for interleave in timelist:
-            loopparameters = (parameters[0], parameters[1], interleave, parameters[3], parameters[4])
-            waveform_name, channel_seqs, digi_samples = self.generate_T1_waveform(sequence_name, loopparameters)
-            # print(digi_samples)
+        laserlist = self.make_param_sweep_list(parameters[2], param_sweep[0], param_sweep[1])
+        for laserpower in laserlist:
+            loopparameters = (parameters[0], parameters[1], laserpower, parameters[3])
+            waveform_name, channel_seqs, digi_samples = self.generate_population_waveform(sequence_name, loopparameters)
+            print(digi_samples)
             seq_parameters_dict = {}
             seq_parameters_dict['ensemble'] = waveform_name
             seq_parameters_dict['repetitions'] = repeat
             parameter_list.append((channel_seqs, seq_parameters_dict))
         # make sequence consisting of all waveforms and write it.
-        self.pulser_hw.write_sequence(sequence_name, parameter_list)
+        # self.pulser_hw.write_sequence(sequence_name, parameter_list)
         return sequence_name, parameter_list
 
 
-    def perform_T1_measurement_routine(self, parameters=None, param_sweep=None, repeat=0, sequence_name='T1_measuerment_sequence'):
+    def perform_population_measurement_routine(self, parameters=None, param_sweep=None, repeat=0, sequence_name='T1_measuerment_sequence'):
         """
         Genarates pulse blocks and combine them to pulse sequence
         :param parameters:  tuple containing:
-                            (initializasion_duration_in_ns, counter_delay_in_ns, interleave_duration or tau_in_ns, collection_duration_in_ns, intersequence_delay_in_ns) in units of ns
-        :param param_sweep:  tuple containing:
+                            (laser_delay, laser_ontime_in_ns, laser_power, intersequence_delay_in_ns) in units of ns
+        :param param_sweep: tuple containing:
                             (increment_size, number_of_increments)
         :param repeat:      Number of repeats for each choice of interleave-time
         :return str:        sequence name of created sequence.
@@ -242,36 +234,29 @@ class T1Logic(GenericLogic):
             repeat = self.default_repeat
 
         if param_sweep == None:
-            param_sweep = (self.size_increments, self.num_increments)
+            param_sweep = (2, 10)
 
         if parameters == None:
-            parameters = (self.init_duration, self.counter_delay, self.interleave_duration, self.collection_duration,
-                          self.intersequence_delay)
-        t0 = time.time()
+            parameters = (self.laser_delay, self.laser_ontime, self.laser_power, self.intersequence_delay)
+
+        # laserlist = self.make_param_sweep_list(parameters[2], param_sweep[0], param_sweep[1])
+
         self.fastcounter_hw.configure(parameters[3] * 1e-10, parameters[3] * 1e-9, repeat)
         data_dict = {}
         seq_name, parameter_list = self.generate_T1_measurement_sequences(parameters, param_sweep, repeat, sequence_name)
-        # print(str(time.time() - t0))
         for channel_seqs, seq_parameters_dict in parameter_list:
             # print(seq_parameters_dict['ensemble'])
             # print(parameter_list)
-            # self.load_waveform_to_pulser(seq_parameters_dict['ensemble'], parameter_list)
-            self.load_sequence_to_pulser(seq_name)
-            # print(str(time.time() - t0))
-            # self.pulser_hw.to_be_streamed.plot()
+            self.load_waveform_to_pulser(seq_parameters_dict['ensemble'], parameter_list)
             data_dict[seq_parameters_dict['ensemble']] = []
-            print(str(time.time() - t0))
-            self.fastcounter_hw.start_measure()
-            self.pulser_hw.pulser_on()
-            print(str(time.time() - t0))
-            time.sleep(sum((parameters[0], parameters[2], parameters[3], parameters[4]))*repeat*1e-9)
-            print(str(time.time() - t0))
-            data_dict[seq_parameters_dict['ensemble']].append(self.fastcounter_hw.get_data_trace()[0])
-            # print(str(time.time() - t0))
-            self.pulser_hw.pulser_off()
-            self.fastcounter_hw.stop_measure()
-            # data_dict[seq_parameters_dict['ensemble']] = sum(data_dict[seq_parameters_dict['ensemble']][0][0]) #/(repeat+1)
-            # print(str(time.time() - t0))
+            self.laser_hw.set_current(float())
+            for rep in range(repeat+1):
+                self.pulser_hw.pulser_on()
+                time.sleep(parameters[3]*1e-9)
+                data_dict[seq_parameters_dict['ensemble']].append(self.fastcounter_hw.get_data_trace()[0])
+            data_dict[seq_parameters_dict['ensemble']] = sum(data_dict[seq_parameters_dict['ensemble']][0][0]) #/(repeat+1)
+            # self.pulser_hw.pulser_off()
+            self.pulser_hw.reset()
         return data_dict
         # why do we only get 0 counts?
 
@@ -319,17 +304,6 @@ class T1Logic(GenericLogic):
         """
         load_dict = self.generate_waveform_load_dict(waveform_name, parameters)
         return self.pulser_hw.load_waveform(load_dict)
-        # return 0
-
-
-    def load_sequence_to_pulser(self, seq_name):
-        """
-        Loads waveform into pulser.
-        :param waveform_name str: name of (channel-collection of) waveform(s) to be loaded into pulser e.g. 'dummy_ens', not 'dummy_ens_ch1' etc.
-        :param parameter_list: parameter list of the form generated in generate_measurement_sequences-function.
-        :return: error code; 0: OK, -1: error
-        """
-        return self.pulser_hw.load_sequence(seq_name)
         # return 0
 
 

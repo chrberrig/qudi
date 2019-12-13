@@ -277,7 +277,7 @@ class PulseStreamer(Base, PulserInterface):
                              created waveform names
         """
 
-        # print(name, digital_samples, total_number_of_samples)
+        print(name, digital_samples, total_number_of_samples)
 
         waveforms = list()
 
@@ -287,19 +287,15 @@ class PulseStreamer(Base, PulserInterface):
         elif len(digital_samples) > 0:
             number_of_samples = len(digital_samples[list(digital_samples)[0]])
         else:
-            self.log.error('No analog or digital samples passed to write_waveform method in dummy '
-                           'pulser.')
+            self.log.error('No analog or digital samples passed to write_waveform method in pulsestreamer.')
             return -1, waveforms
-
         for chnl, samples in analog_samples.items():
             if len(samples) != number_of_samples:
-                self.log.error('Unequal length of sample arrays for different channels in dummy '
-                               'pulser.')
+                self.log.error('Unequal length of analogue sample arrays for different channels in pulsestreamer.')
                 return -1, waveforms
         for chnl, samples in digital_samples.items():
             if len(samples) != number_of_samples:
-                self.log.error('Unequal length of sample arrays for different channels in dummy '
-                               'pulser.')
+                self.log.error('Unequal length of digital sample arrays for different channels in pulsestreamer.')
                 return -1, waveforms
 
         for chnl, samples in digital_samples.items():
@@ -801,4 +797,14 @@ class PulseStreamer(Base, PulserInterface):
         wave.setDigital(chnl_num, pattern)
         self.pulse_streamer.stream(wave, n_runs=self.pulse_streamer.REPEAT_INFINITELY) #, final=laser_and_uw_on)
 
+        return 0
+
+    def set_constatnt_state(self, channels, a1=0, a2=0):
+        """ Switches the pulsing device off.
+
+        @return int: error code (0:OK, -1:error)
+        """
+        # stop the pulse sequence
+        self.pulse_streamer.constant(OutputState(channels, a1, a2))
+        self.current_status = 0
         return 0
