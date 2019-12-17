@@ -41,7 +41,7 @@ from pulsestreamer import TriggerStart, TriggerRearm
 from pulsestreamer import Sequence, OutputState
 
 import numpy as np
-# import time
+import time
 import pickle
 # import grpc
 import os
@@ -175,19 +175,27 @@ class PulseStreamer(Base, PulserInterface):
 
 
     def pulser_on(self):
-        """ Switches the pulsing device on.
+        """
+        Switches the pulsing device on.
 
         @return int: error code (0:OK, -1:error)
         """
         # start the pulse sequence
         # self.pulse_streamer.stream(self.to_be_streamed)
-        self.log.info('Asset uploaded to PulseStreamer')
+        # self.log.info('Asset uploaded to PulseStreamer')
+        print(bool(self.pulse_streamer.hasSequence()))
+        print(bool(self.pulse_streamer.isStreaming()))
+        if not bool(self.pulse_streamer.hasSequence()):
+            self.log.error('No asset current loaded into PulseStreamer')
         self.pulse_streamer.startNow()
+        time.sleep(0.1)
+        print(bool(self.pulse_streamer.isStreaming()))
         self.current_status = 1
         return 0
 
     def pulser_off(self):
-        """ Switches the pulsing device off.
+        """
+        Switches the pulsing device off.
 
         @return int: error code (0:OK, -1:error)
         """
@@ -303,6 +311,7 @@ class PulseStreamer(Base, PulserInterface):
             waveforms.append(waveform_name)
             if waveform_name not in self.ps_waveforms_dict.keys():
                 self.ps_waveforms_dict[waveform_name] = self._array_to_ps_sequence(samples)
+                self.bin_waveforms_dict[waveform_name] = samples
             if waveform_name not in self.waveform_channel_names:
                 self.waveform_channel_names.append(waveform_name)
 
@@ -356,7 +365,11 @@ class PulseStreamer(Base, PulserInterface):
                 sequence_channel_name = name + '_' + str(self._channel_to_index(chnl) + 1)
                 for i in range(reps + 1):
                     self.ps_sequence_dict[sequence_channel_name] = self.ps_sequence_dict[sequence_channel_name] + self.ps_waveforms_dict[chnl]
+                #     self.ps_sequence_dict[sequence_channel_name] = self.ps_sequence_dict[sequence_channel_name] + self.bin_waveforms_dict[chnl]
+                # _array_to_ps_sequence(self.ps_sequence_dict[sequence_channel_name])
         self.seq_master_dict[name] = self.ps_sequence_dict
+        #dur = sum(self.ps_sequence_dict.values()[])
+        #print('duration for seq: ' + str())
 
         # updating variable wrt. what is "loaded" into PS.
         temp_dict = {}
@@ -422,13 +435,18 @@ class PulseStreamer(Base, PulserInterface):
         laser_on = OutputState([self._laser_channel], 0, 0)
         laser_and_uw_on = OutputState([self._laser_channel, self._uw_x_channel], 0, 0)
         self.pulse_streamer.stream(self.to_be_streamed, n_runs=0, final=laser_and_uw_on)
+        # if bool(self.pulse_streamer.hasSequence()):
+        #     self.log.info('Asset uploaded to PulseStreamer')
+        # else:
+        #     self.log.warn('No asset uploaded to PulseStreamer')
 
-        if self.pulse_streamer.hasSequence():
+        if bool(self.pulse_streamer.hasSequence()):
             # self.to_be_streamed.plot()
+            self.log.info('Waveform uploaded to PulseStreamer')
             self.current_loaded_asset = load_dict, 'waveform'
             return self.current_loaded_asset
         else:
-            self.log.error('No waveforms uploaded to PulseStreamer.\n'
+            self.log.error('No waveform uploaded to PulseStreamer.\n'
                            '"load_waveform" call ignored.')
 
 
@@ -471,8 +489,9 @@ class PulseStreamer(Base, PulserInterface):
         self.pulse_streamer.stream(self.to_be_streamed, n_runs=0, final=laser_and_uw_on)
 
         # update, confirmation and return
-        if self.pulse_streamer.hasSequence():
-            # self.to_be_streamed.plot()
+        if bool(self.pulse_streamer.hasSequence()):
+            self.to_be_streamed.plot()
+            self.log.info('Sequence uploaded to PulseStreamer')
             self.current_loaded_asset = return_dict, 'sequence'
             return self.current_loaded_asset
         else:
@@ -764,6 +783,28 @@ class PulseStreamer(Base, PulserInterface):
             _seq.append((dur, int(bool)))
         return _seq
 
+
+    def set_constatnt_state(self, channels, a1=0, a2=0):
+        """ Switches the pulsing device off.
+
+        @return int: error code (0:OK, -1:error)
+        """
+        # stop the pulse sequence
+        self.pulse_streamer.constant(OutputState(channels, a1, a2))
+        self.current_status = 0
+        return 0
+
+    def plot_loaded_asset(self):
+        if self.to_be_streamed == None:
+            self.log.warn('PulseStreamer has no uploaded asset.')
+        else:
+            self.to_be_streamed.plot()
+
+
+
+
+
+
     # def _ps_seq_to_array(self, ps_seq):
     #     """
     #     Transform np array into pulse streamer sequence format
@@ -781,30 +822,20 @@ class PulseStreamer(Base, PulserInterface):
     #     return np.asarray(ret_list)
 
 
-    def _set_up_osc(self, chnl_num, freq):
-        """
-
-        :param int chnl_num:
-        :param float freq:
-
-        :return int: error code (0:OK, -1:error)
-        """
-
-        # convert freq. to a "ON/OFF" single cycle in the PS list-tuple format, and upload it to corresponding channel.
-        cycle_duration = int(1e9/freq) # in picosec
-        pattern = [(cycle_duration/2, 1), (cycle_duration - cycle_duration/2, 0)]
-        wave = self.pulse_streamer.createSequence()
-        wave.setDigital(chnl_num, pattern)
-        self.pulse_streamer.stream(wave, n_runs=self.pulse_streamer.REPEAT_INFINITELY) #, final=laser_and_uw_on)
-
-        return 0
-
-    def set_constatnt_state(self, channels, a1=0, a2=0):
-        """ Switches the pulsing device off.
-
-        @return int: error code (0:OK, -1:error)
-        """
-        # stop the pulse sequence
-        self.pulse_streamer.constant(OutputState(channels, a1, a2))
-        self.current_status = 0
-        return 0
+    # def _set_up_osc(self, chnl_num, freq):
+    #     """
+    #
+    #     :param int chnl_num:
+    #     :param float freq:
+    #
+    #     :return int: error code (0:OK, -1:error)
+    #     """
+    #
+    #     # convert freq. to a "ON/OFF" single cycle in the PS list-tuple format, and upload it to corresponding channel.
+    #     cycle_duration = int(1e9/freq) # in picosec
+    #     pattern = [(cycle_duration/2, 1), (cycle_duration - cycle_duration/2, 0)]
+    #     wave = self.pulse_streamer.createSequence()
+    #     wave.setDigital(chnl_num, pattern)
+    #     self.pulse_streamer.stream(wave, n_runs=self.pulse_streamer.REPEAT_INFINITELY) #, final=laser_and_uw_on)
+    #
+    #     return 0
