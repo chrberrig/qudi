@@ -32,12 +32,10 @@ from core.util.helpers import natural_sort
 from interface.pulser_interface import PulserInterface, PulserConstraints
 from collections import OrderedDict
 
-# import JSON-RPC Pulse Streamer wrapper class, to use Google-RPC import from pulsestreamer.grpc
+# imports JSON-RPC Pulse Streamer wrapper class
 #from pulsestreamer import PulseStreamer
 import pulsestreamer
-# import enum types
 from pulsestreamer import TriggerStart, TriggerRearm
-# import class Sequence and OutputState for advanced sequence building
 from pulsestreamer import Sequence, OutputState
 
 import numpy as np
@@ -67,7 +65,6 @@ class PulseStreamer(Base, PulserInterface):
     _uw_x_channel = ConfigOption('uw_x_channel', 2, missing='warn')
 
 
-
     def __init__(self, config, **kwargs):
         super().__init__(config=config, **kwargs)
 
@@ -79,10 +76,12 @@ class PulseStreamer(Base, PulserInterface):
         self.waveform_names = []
         self.waveform_channel_names = []
         self.ps_waveforms_dict = {} # Dict containing human-readable elements of the waveform eg. {(dummy_ens_ch1:[(1,10), (0,10), ...]), ...}
+        # self.bin_waveforms_dict = {}
 
         self.sequence_names = []
         self.sequence_channel_names = []
         self.ps_sequence_dict = {} # Dict containing human-readable elements of the sequence eg. {(dummy_ens_ch1:[(1,10), (0,10), ...]), ...}
+        # self.bin_sequence_dict = {}  # Dict containing binary array elements of the sequence eg. {(dummy_ens_ch1:ndarray([1,0, 0,1, 0...]), ...}
         self.seq_master_dict = {} # dict with keys being sequencenames, and values being
                                 # dict of corresponding sequence channelnames as keys with values being the humanreadable sequence.
         # ============================
@@ -90,21 +89,24 @@ class PulseStreamer(Base, PulserInterface):
         self.to_be_streamed = None # current uploaded waveform/sequence in ps object format.
         self.current_loaded_asset = {}, None
 
-        self.pulse_streamer = pulsestreamer.PulseStreamer(self._pulsestreamer_ip)
+        # self.pulse_streamer = pulsestreamer.PulseStreamer(self._pulsestreamer_ip)
+
+        self.start = TriggerStart.SOFTWARE
+        self.rearm = TriggerRearm.AUTO
+
 
     def on_activate(self):
         """ Establish connection to pulse streamer and tell it to cancel all operations """
-#        self.pulse_streamer = pulse_streamer_pb2.PulseStreamerStub(self._channel)
         self.pulse_streamer = pulsestreamer.PulseStreamer(self._pulsestreamer_ip)
-        start = TriggerStart.SOFTWARE
-        rearm = TriggerRearm.AUTO
-        self.pulse_streamer.setTrigger(start=start, rearm=rearm)
+        self.pulse_streamer.setTrigger(start=self.start, rearm=self.rearm)
 
         self.pulser_off()
         self.current_status = 0
 
+
     def on_deactivate(self):
         del self.pulse_streamer
+
 
     def get_constraints(self):
         """ Retrieve the hardware constrains from the Pulsing device.
@@ -181,15 +183,14 @@ class PulseStreamer(Base, PulserInterface):
         @return int: error code (0:OK, -1:error)
         """
         # start the pulse sequence
-        # self.pulse_streamer.stream(self.to_be_streamed)
-        # self.log.info('Asset uploaded to PulseStreamer')
-        print(bool(self.pulse_streamer.hasSequence()))
-        print(bool(self.pulse_streamer.isStreaming()))
-        if not bool(self.pulse_streamer.hasSequence()):
+        if bool(self.pulse_streamer.hasSequence()):
+            # print(self.to_be_streamed.getData())
+            # self.log.error('No asset current loaded into PulseStreamer')
+            self.log.info('Asset of duration {0}ns is currently loaded into PulseStreamer'.format(self.to_be_streamed.getDuration()))
+            self.log.info('PulseStreamer starts streaming!')
+        else:
             self.log.error('No asset current loaded into PulseStreamer')
         self.pulse_streamer.startNow()
-        time.sleep(0.1)
-        print(bool(self.pulse_streamer.isStreaming()))
         self.current_status = 1
         return 0
 
@@ -311,15 +312,13 @@ class PulseStreamer(Base, PulserInterface):
             waveforms.append(waveform_name)
             if waveform_name not in self.ps_waveforms_dict.keys():
                 self.ps_waveforms_dict[waveform_name] = self._array_to_ps_sequence(samples)
-                self.bin_waveforms_dict[waveform_name] = samples
+                # self.bin_waveforms_dict[waveform_name] = samples
             if waveform_name not in self.waveform_channel_names:
                 self.waveform_channel_names.append(waveform_name)
 
         if name not in self.waveform_names:
             self.waveform_names.append(name)
 
-        # setDigital method here!! Nope. Only add it the the "script memory",
-        # since the upload to the channels happens in "load_dict"
         temp_dict = {}
         for wf_name, ps_seq in self.ps_waveforms_dict.items():
             temp_dict[self._channel_to_index(wf_name)+1] = wf_name
@@ -353,23 +352,22 @@ class PulseStreamer(Base, PulserInterface):
                 for chnl in channels:
                     sequence_channel_name = name + '_' + str(self._channel_to_index(chnl) + 1)
                     self.ps_sequence_dict[sequence_channel_name] = []
+                    # self.bin_sequence_dict[sequence_channel_name] = np.array([])
             ensemble = dict['ensemble']
             #Checks that ensemble has been read in as waveform.
             if ensemble not in self.waveform_names:
-                self.log.error(
-                    'Waveform {0} not written to device. Write waveforms present in sequence to device, before proceeding'.format(
-                        ensemble))
+                self.log.error('Waveform {0} not written to device. '.format(ensemble) +
+                    'Write waveforms present in sequence to device, before proceeding')
                 return -1
             reps = dict['repetitions']
             for chnl in channels:
                 sequence_channel_name = name + '_' + str(self._channel_to_index(chnl) + 1)
                 for i in range(reps + 1):
-                    self.ps_sequence_dict[sequence_channel_name] = self.ps_sequence_dict[sequence_channel_name] + self.ps_waveforms_dict[chnl]
-                #     self.ps_sequence_dict[sequence_channel_name] = self.ps_sequence_dict[sequence_channel_name] + self.bin_waveforms_dict[chnl]
-                # _array_to_ps_sequence(self.ps_sequence_dict[sequence_channel_name])
+                    self.ps_sequence_dict[sequence_channel_name] = self.ps_sequence_dict[sequence_channel_name] + self.ps_waveforms_dict[chnl]                            #
+                #     self.bin_sequence_dict[sequence_channel_name] = np.concatenate((self.bin_sequence_dict[sequence_channel_name], self.bin_waveforms_dict[chnl]), axis=0)  #
+                # self.ps_sequence_dict[sequence_channel_name] = self._array_to_ps_sequence(self.bin_sequence_dict[sequence_channel_name])                                    #
+                self.ps_sequence_dict[sequence_channel_name] = self._simplify_ps_seq(self.ps_sequence_dict[sequence_channel_name])
         self.seq_master_dict[name] = self.ps_sequence_dict
-        #dur = sum(self.ps_sequence_dict.values()[])
-        #print('duration for seq: ' + str())
 
         # updating variable wrt. what is "loaded" into PS.
         temp_dict = {}
@@ -434,14 +432,11 @@ class PulseStreamer(Base, PulserInterface):
         blank_pulse = OutputState.ZERO()
         laser_on = OutputState([self._laser_channel], 0, 0)
         laser_and_uw_on = OutputState([self._laser_channel, self._uw_x_channel], 0, 0)
-        self.pulse_streamer.stream(self.to_be_streamed, n_runs=0, final=laser_and_uw_on)
-        # if bool(self.pulse_streamer.hasSequence()):
-        #     self.log.info('Asset uploaded to PulseStreamer')
-        # else:
-        #     self.log.warn('No asset uploaded to PulseStreamer')
+        self.pulse_streamer.stream(self.to_be_streamed, n_runs=1) # , final=laser_and_uw_on)
 
         if bool(self.pulse_streamer.hasSequence()):
             # self.to_be_streamed.plot()
+            # self.to_be_streamed.getData()
             self.log.info('Waveform uploaded to PulseStreamer')
             self.current_loaded_asset = load_dict, 'waveform'
             return self.current_loaded_asset
@@ -479,6 +474,7 @@ class PulseStreamer(Base, PulserInterface):
         self.to_be_streamed = self.pulse_streamer.createSequence()
         return_dict = {}
         for seq_chnl_name, ps_seq in self.seq_master_dict[sequence_name].items():
+            print(self._channel_to_index(seq_chnl_name), ps_seq)
             self.to_be_streamed.setDigital(self._channel_to_index(seq_chnl_name), ps_seq)
             return_dict[self._channel_to_index(seq_chnl_name)+1] = seq_chnl_name
 
@@ -486,11 +482,12 @@ class PulseStreamer(Base, PulserInterface):
         blank_pulse = OutputState.ZERO()
         laser_on = OutputState([self._laser_channel], 0, 0)
         laser_and_uw_on = OutputState([self._laser_channel, self._uw_x_channel], 0, 0)
-        self.pulse_streamer.stream(self.to_be_streamed, n_runs=0, final=laser_and_uw_on)
+        self.pulse_streamer.stream(self.to_be_streamed, n_runs=1) # , final=laser_and_uw_on)
 
         # update, confirmation and return
         if bool(self.pulse_streamer.hasSequence()):
-            self.to_be_streamed.plot()
+            # self.to_be_streamed.plot()
+            # self.to_be_streamed.getData()
             self.log.info('Sequence uploaded to PulseStreamer')
             self.current_loaded_asset = return_dict, 'sequence'
             return self.current_loaded_asset
@@ -729,13 +726,14 @@ class PulseStreamer(Base, PulserInterface):
         """
 #        channels = [self._laser_channel, self._uw_x_channel]
         self.pulse_streamer.reset()
-        start = TriggerStart.SOFTWARE
-        rearm = TriggerRearm.AUTO
-        self.pulse_streamer.setTrigger(start=start, rearm=rearm)
+        self.pulse_streamer.setTrigger(start=self.start, rearm=self.rearm)
+        if not bool(self.pulse_streamer.hasSequence()):
+            self.log.info('PulseStreamer has successfully been reset.')
         # self.pulse_streamer.constant(OutputState([self._laser_channel], 0, 0))
         return 0
 
-#  ====== Internal functions ======
+
+#  ====== Internal helper functions ======
 
     def _channel_to_index(self, ch):
         """
@@ -784,6 +782,22 @@ class PulseStreamer(Base, PulserInterface):
         return _seq
 
 
+    def _simplify_ps_seq(self, list):
+        ret_list = []
+        dur = list[0][0]
+        state = list[0][1]
+        for index, (newdur, newstate) in enumerate(list[1:]):
+            if newstate == state:
+                dur = dur + newdur
+            else:
+                ret_list.append((dur, state))
+                dur = newdur
+                state = newstate
+            if index == len(list[1:])-1:
+                ret_list.append((dur, state))
+        return ret_list
+
+
     def set_constatnt_state(self, channels, a1=0, a2=0):
         """ Switches the pulsing device off.
 
@@ -799,6 +813,7 @@ class PulseStreamer(Base, PulserInterface):
             self.log.warn('PulseStreamer has no uploaded asset.')
         else:
             self.to_be_streamed.plot()
+
 
 
 
