@@ -72,6 +72,7 @@ class DLnsec(Base, SimpleLaserInterface):
             return -1
         else:
             self._model_name = self.read_serial('*IDN')
+            self.log.info('Laser {0} now connected via. serial {1}'.format(self._model_name, self._com_port))
             self.get_current()
             return 0
 
@@ -227,7 +228,7 @@ class DLnsec(Base, SimpleLaserInterface):
             @return LaserState: actual laser state
         """
         self.write_serial('*ON')
-        self.write_serial('*LASE')
+        self.write_serial('LASE')
         self.get_extra_info()
         self.lstate = LaserState.ON
         return self.lstate
@@ -236,7 +237,7 @@ class DLnsec(Base, SimpleLaserInterface):
         """ Turn off laser.
             @return LaserState: actual laser state
         """
-        self.write_serial('*STOP')
+        self.write_serial('STOP')
         self.write_serial('*OFF')
         self.get_extra_info()
         self.lstate = LaserState.OFF

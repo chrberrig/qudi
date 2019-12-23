@@ -58,7 +58,7 @@ class T1Logic(GenericLogic):
     counter_delay = init_duration
     interleave_duration = 1000#500 # tau
     collection_duration = 200
-    intersequence_delay = 1000
+    intersequence_delay = 2#1000
     # the above are all in units of ns.
 
 
@@ -94,24 +94,25 @@ class T1Logic(GenericLogic):
                       .format(self._laser_channel))
         self.log.info('PulseStreamer configured to use  channel {0} as trigger channel fr TT gating'
                       .format(self._trigger_channel))
-        # print('self._laser_channel: ' + str(self._laser_channel))
-        # print('self._trigger_channel: ' + str(self._trigger_channel))
-        # print('self._counter_channel: ' + str(self._counter_channel))
-        # print("waiting_time: " + str(sum((self.init_duration, self.interleave_duration, self.collection_duration, self.intersequence_delay)) * self.default_repeat) + ' ns')
-
-        # self.set_up_laser()
-        # self.set_up_counter()
 
 
-        # Test sequence:
-        # self.fastcounter_hw.test_signal(self._counter_channel, True) #this line is to be uncommented only during testing !!!
-        # self.fastcounter_hw.start_measure()
-        # time.sleep(1)
-        # self.pulser_hw.set_constatnt_state([self._trigger_channel])
-        # time.sleep(sum((self.init_duration, self.interleave_duration, self.collection_duration, self.intersequence_delay)) * self.default_repeat * 1e-9)
-        # print(self.fastcounter_hw.get_data_trace())
-        # print(sum(self.fastcounter_hw.get_data_trace()[0]))
-        # self.fastcounter_hw.stop_measure()
+        print('self._laser_channel: ' + str(self._laser_channel))
+        print('self._trigger_channel: ' + str(self._trigger_channel))
+        print('self._counter_channel: ' + str(self._counter_channel))
+        print("waiting_time: " + str(sum((self.init_duration, self.interleave_duration, self.collection_duration, self.intersequence_delay)) * self.default_repeat) + ' ns')
+
+
+        self.set_up_laser()
+
+        self.set_up_counter()
+        self.fastcounter_hw.test_signal(self._counter_channel, True) #this line is to be uncommented only during testing !!!
+        self.fastcounter_hw.start_measure()
+        time.sleep(1)
+        self.pulser_hw.set_constatnt_state([self._trigger_channel])
+        time.sleep(sum((self.init_duration, self.interleave_duration, self.collection_duration, self.intersequence_delay)) * self.default_repeat * 1e-9)
+        print(self.fastcounter_hw.get_data_trace())
+        print(sum(self.fastcounter_hw.get_data_trace()[0]))
+        self.fastcounter_hw.stop_measure()
 
 
     def on_deactivate(self):
@@ -142,13 +143,13 @@ class T1Logic(GenericLogic):
         setting up fastcounter hardware as counter for photons.
         :return: bin_width_s, record_length_s, number_of_gates
         """
+        #return self.fastcounter_hw.configure(self, bin_width_s=self.collection_duration, record_length_s=self.collection_duration, number_of_gates=0)
         if bin_width_s == 0:
             bin_width_s = self.collection_duration*1e-10
         if record_length_s == 0:
             record_length_s = self.collection_duration*1e-9
         self.fastcounter_hw.configure(bin_width_s, record_length_s, number_of_gates)
         return 0
-
 
     def set_up_mw_gen(self):
         pass
@@ -168,12 +169,14 @@ class T1Logic(GenericLogic):
         _sequence_counter = [((parameters[4] + parameters[1]), 0), (parameters[0] - parameters[1], 1)] + seq_after_init
         # _sequence_mw_gen = [(parameters[1], 0), (parameters[0] - parameters[1], 1)] + seq_after_init
         waveform_name = wf_name + '_interleave_{0}ns'.format(parameters[2])
+
         # tab this section out if this should be done in waveform format "<= waveform" and "=> sequence"
         self.measurement_sequence_laser = self._seq_to_array(_sequence_laser)
         self.measurement_sequence_counter = self._seq_to_array(_sequence_counter)
         # self.measurement_sequence_mw_gen = self._seq_to_array(_sequence_counter)
-        measurement_duration = len(self.measurement_sequence_laser)
-        if not len(self.measurement_sequence_laser) == len(self.measurement_sequence_laser):
+        if len(self.measurement_sequence_laser) == len(self.measurement_sequence_laser):
+            measurement_duration = len(self.measurement_sequence_laser)
+        else:
             self.log.error('Error occurred in sequence writing process. Process terminated.')
         # create waveform and write it.
         empty_array = np.array([0] * measurement_duration)
@@ -250,7 +253,12 @@ class T1Logic(GenericLogic):
         seq_name, parameter_list = self.generate_T1_measurement_sequences(parameters, param_sweep, repeat, sequence_name)
         # print(str(time.time() - t0))
         for channel_seqs, seq_parameters_dict in parameter_list:
+            # print(seq_parameters_dict['ensemble'])
+            # print(parameter_list)
+            # self.load_waveform_to_pulser(seq_parameters_dict['ensemble'], parameter_list)
             self.load_sequence_to_pulser(seq_name)
+            # print(str(time.time() - t0))
+            # self.pulser_hw.to_be_streamed.plot()
             data_dict[seq_parameters_dict['ensemble']] = []
             print(str(time.time() - t0))
             self.fastcounter_hw.start_measure()
@@ -270,7 +278,7 @@ class T1Logic(GenericLogic):
 
 # ============== internal funct.s ===============
 
-    def make_param_sweep_list(self, param_min, increment, num_incr):
+    def make_param_sweep_list(self, time_min, increment, num_incr):
         """
         Makes list consisting of timeintervals, from minimum time interval, increment size of time interval, and number of increments.
         :param int time_min:    minimum time interval
@@ -278,7 +286,7 @@ class T1Logic(GenericLogic):
         :param int num_incr:    number of increments
         :return list:
         """
-        return [param_min + i*increment for i in range(num_incr+1)]
+        return [time_min + i*increment for i in range(num_incr+1)]
 
 
     def generate_waveform_load_dict(self, waveform_name, parameters):

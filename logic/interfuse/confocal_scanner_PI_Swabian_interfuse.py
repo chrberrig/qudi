@@ -43,7 +43,7 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
 
     # config options
     #clock_frequency = ConfigOption('clock_frequency', 100, missing='warn')
-    clock_frequency = 300
+    clock_frequency = 1000
     #pixel_exposure_time = 1/float(clock_frequency) # exposure time for photon collection pr. pixel in sec.
                                             # Python time.sleep is reliable within ~ 0.005s...
                                             # not suitable for times below 0.1 sec
@@ -55,14 +55,11 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
 
         # Internal parameters
         self._line_length = None
-        self._scanner_counter_daq_task = None
         self._voltage_range = [-10., 10.]
 
         self._position_range = [[0, 100e-6], [0, 100e-6], [0, 10e-6], [0, 1e-6]]
         #self._position_range = [[0., 100.], [0., 100.], [0., 10.], [0., 1.]]
         self._current_position = [0., 0., 0., 0.]
-
-        self._num_points = 500
 
     def on_activate(self):
         """ Initialisation performed during activation of the module.
@@ -126,7 +123,7 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
         self._scanner_hw.set_voltage_range(myrange=myrange)
         return 0
 
-    def set_up_scanner_clock(self, clock_frequency=None, clock_channel = None):
+    def set_up_scanner_clock(self, clock_frequency=None, clock_channel=None):
         """ Configures the hardware clock of the NiDAQ card to give the timing.
         This is a direct pass-through to the scanner HW
 
@@ -169,7 +166,7 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
         """ Pass through scanner axes. """
         return self._scanner_hw.get_scanner_axes()
 
-    def scanner_set_position(self, x = None, y = None, z = None, a = None):
+    def scanner_set_position(self, x=None, y=None, z=None, a=None):
         """Move stage to x, y, z, a (where a is the fourth voltage channel).
         This is a direct pass-through to the scanner HW
 
@@ -230,30 +227,19 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
             self._set_up_line(np.shape(line_path)[1])
 
         count_data = np.zeros(self._line_length)
-        # self._counter_hw.configure(1e-6, self._line_length*self.pixel_exposure_time, self._line_length)
-        # self._counter_hw.test_signal([self._counter_hw._channel_apd], True)
-        # self._counter_hw.pause_measure()
-        #self._counter_hw.start_measure()
-        # print(self._counter_hw.module_state())
-
         self._counter_hw.start_measure()
         for i in range(self._line_length):
-            #t0 = time.clock()
+            # t0 = time.clock()
             coords = line_path[:, i]
-            # self._scanner_hw.scanner_set_position(x=coords[0], y=coords[1], z=coords[2], a=coords[3])
+            print('coords: ' + str(coords))
             self.scanner_set_position(x=coords[0], y=coords[1], z=coords[2], a=coords[3])
-            # print(time.clock() - t0)
-            # time.sleep(4/self.clock_frequency)
-            # print(time.clock() - t0)
-            #using the slow counter: (requires only timetagger)
-            # count_data[i] = self._counter_hw.measure_for_gate()
             count_data[i] = self._counter_hw.get_counter()[0][0]/self.clock_frequency
-            # self._counter_hw.stop_measure()
-
             # updating_current position.
-            self._current_position = list(line_path[:, -1])
-            #print(time.clock() - t0)
-            #print(count_data[i])
+            # self._current_position = list(line_path[:, -1])
+            # self._current_position = list(coords)
+            self._current_position = list(self.get_scanner_position())
+            print('_current_position: ' + str(self._current_position))
+            # print(time.clock()-t0)
         self._counter_hw.stop_measure()
 
         return np.array([[count_data[i]] for i in range(self._line_length)])

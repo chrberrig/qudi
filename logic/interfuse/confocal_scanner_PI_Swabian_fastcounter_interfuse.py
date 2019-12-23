@@ -231,10 +231,6 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
         count_data = np.zeros(self._line_length)
         # self._counter_hw.configure(1e-6, self._line_length*self.pixel_exposure_time, 1) #  self._line_length)
         self._counter_hw.configure(1e-6, self.pixel_exposure_time, 1)
-        # self._counter_hw.test_signal([self._counter_hw._channel_apd], True)
-        # self._counter_hw.pause_measure()
-        # self._counter_hw.start_measure()
-        # print(self._counter_hw.module_state())
         for i in range(self._line_length):
             t0 = time.clock()
             coords = line_path[:, i]
@@ -243,8 +239,6 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
             self._counter_hw.start_counting
             self._counter_hw.stop_counting
             print(self._counter_hw.get_data_trace()[0])
-            # print(self._counter_hw.get_data_trace()[0].sum())
-            # print([type(x) for x in self._counter_hw.get_data_trace()])
             count_data[i] = self._counter_hw.get_data_trace()[0].sum()
             print(count_data[i])
 

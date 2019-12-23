@@ -59,7 +59,6 @@ class T1Logic(GenericLogic):
     counter_delay = init_duration
     interleave_duration = 500 # tau
     collection_duration = 200
-    intersequence_delay = 10000
     # the above are all in units of ns.
 
 
@@ -136,18 +135,9 @@ class T1Logic(GenericLogic):
         return self.fastcounter_hw.configure(self, bin_width_s=bin_width_s, record_length_s=record_length_s,
                                              number_of_gates=number_of_gates)
 
+
     def set_up_mw_gen(self):
         pass
-
-
-    # def start_measurement(self):
-    #     self.pulser_hw.pulser_on()
-    #     return None
-    #
-    #
-    # def stop_measurement(self):
-    #     self.pulser_hw.pulser_off()
-    #     return None
 
 
     def generate_population_waveform(self, wf_name, parameters):
@@ -168,9 +158,8 @@ class T1Logic(GenericLogic):
         self.measurement_sequence_laser = self._seq_to_array(_sequence_laser)
         self.measurement_sequence_counter = self._seq_to_array(_sequence_counter)
         # self.measurement_sequence_mw_gen = self._seq_to_array(_sequence_counter)
-        if len(self.measurement_sequence_laser) == len(self.measurement_sequence_laser):
-            measurement_duration = len(self.measurement_sequence_laser)
-        else:
+        measurement_duration = len(self.measurement_sequence_laser)
+        if not len(self.measurement_sequence_laser) == len(self.measurement_sequence_laser):
             self.log.error('Error occurred in sequence writing process. Process terminated.')
         # create waveform and write it.
         empty_array = np.array([0] * measurement_duration)
@@ -214,9 +203,10 @@ class T1Logic(GenericLogic):
             seq_parameters_dict = {}
             seq_parameters_dict['ensemble'] = waveform_name
             seq_parameters_dict['repetitions'] = repeat
+            seq_parameters_dict['laserpower'] = laserpower
             parameter_list.append((channel_seqs, seq_parameters_dict))
         # make sequence consisting of all waveforms and write it.
-        # self.pulser_hw.write_sequence(sequence_name, parameter_list)
+        self.pulser_hw.write_sequence(sequence_name, parameter_list)
         return sequence_name, parameter_list
 
 
@@ -245,11 +235,9 @@ class T1Logic(GenericLogic):
         data_dict = {}
         seq_name, parameter_list = self.generate_T1_measurement_sequences(parameters, param_sweep, repeat, sequence_name)
         for channel_seqs, seq_parameters_dict in parameter_list:
-            # print(seq_parameters_dict['ensemble'])
-            # print(parameter_list)
-            self.load_waveform_to_pulser(seq_parameters_dict['ensemble'], parameter_list)
+            self.load_sequence_to_pulser(seq_name)
             data_dict[seq_parameters_dict['ensemble']] = []
-            self.laser_hw.set_current(float())
+            self.laser_hw.set_current(float(seq_parameters_dict['laserpower']))
             for rep in range(repeat+1):
                 self.pulser_hw.pulser_on()
                 time.sleep(parameters[3]*1e-9)
@@ -263,7 +251,7 @@ class T1Logic(GenericLogic):
 
 # ============== internal funct.s ===============
 
-    def make_param_sweep_list(self, time_min, increment, num_incr):
+    def make_param_sweep_list(self, param_min, increment, num_incr):
         """
         Makes list consisting of timeintervals, from minimum time interval, increment size of time interval, and number of increments.
         :param int time_min:    minimum time interval
@@ -271,7 +259,7 @@ class T1Logic(GenericLogic):
         :param int num_incr:    number of increments
         :return list:
         """
-        return [time_min + i*increment for i in range(num_incr+1)]
+        return [param_min + i*increment for i in range(num_incr+1)]
 
 
     def generate_waveform_load_dict(self, waveform_name, parameters):

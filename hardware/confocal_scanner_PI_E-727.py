@@ -61,7 +61,6 @@ class ConfocalScannerPI_E727(Base, ConfocalScannerInterface):
         #                         [self.get_position_range()[1][0], self.get_position_range()[1][1]],
         #                         [self.get_position_range()[2][0], self.get_position_range()[2][1]], [0, 1e-6]]
         self._current_position = [0, 0, 0, 0][0:len(self.get_scanner_axes())]
-        self._num_points = 500
 
     def on_activate(self):
         """ Initialisation performed during activation of the module.
@@ -203,13 +202,11 @@ class ConfocalScannerPI_E727(Base, ConfocalScannerInterface):
         if clock_frequency is not None:
             self._clock_frequency = float(clock_frequency)
 
-        self.log.debug('ConfocalScannerDummy>set_up_scanner_clock')
-        # time.sleep(0.2)
+        self.log.debug('ConfocalScanner_PI_E-727>set_up_scanner_clock')
         return 0
 
 
-    def set_up_scanner(self, counter_channels=None, sources=None,
-                       clock_channel=None, scanner_ao_channels=None):
+    def set_up_scanner(self, counter_channels=None, sources=None, clock_channel=None, scanner_ao_channels=None):
         """ Configures the actual scanner with a given clock.
 
         @param str counter_channel: if defined, this is the physical channel of
@@ -220,17 +217,15 @@ class ConfocalScannerPI_E727(Base, ConfocalScannerInterface):
                                   counter
         @param str scanner_ao_channels: if defined, this specifies the analoque
                                         output channels
-
         @return int: error code (0:OK, -1:error)
         """
 
-        self.log.debug('ConfocalScannerDummy>set_up_scanner')
-        # time.sleep(0.2)
+        self.log.debug('ConfocalScanner_PI_E-727>set_up_scanner')
         return 0
 
 
     def scanner_set_position(self, x=None, y=None, z=None, a=None):
-        """Move stage to x, y, z, a (where a is the fourth voltage channel).
+        """ Move stage to x, y, z, a (where a is the fourth voltage channel).
 
         @param float x: postion in x-direction (volts)
         @param float y: postion in y-direction (volts)
@@ -243,25 +238,16 @@ class ConfocalScannerPI_E727(Base, ConfocalScannerInterface):
         if self.module_state() == 'locked':
             self.log.error('A Scanner is already running, close this one first.')
             return -1
-        # coord_list = [round(float(x),8), round(float(y),8), round(float(z),8), round(float(a),8)]
-        # coord_list = [x, y, z, a]
+
         coord_list = [x*1e6, y*1e6, z*1e6, a*1e6]
-        # print("coord_list:" + str(coord_list))
-        # print(self._volt_to_position(coord_list))
-        t0 = time.clock()
+        # t0 = time.clock()
         for axis, target in zip(self.e727_controller.axes, coord_list[:-1]):
             self.e727_controller.MOV(axis, target)
-        pitools.waitontarget(self.e727_controller, axes=axis)
-        self._current_position = [x, y, z, a][0:len(self.get_scanner_axes())]
-        wait_time = time.clock() - t0
-        time.sleep(8*wait_time)
-        # for axis, target in zip(self.e727_controller.axes, self._volt_to_position(coord_list)[:-1]):
-        #     self.e727_controller.MOV(axis, target*1e6)
-        #pitools.waitontarget(self.e727_controller, axes=axis)
-        #time.sleep(0.05)
-        #self._current_position = [x, y, z, a][0:len(self.get_scanner_axes())]
-        # print("current_pos:" + str(self._current_position))
-        # print("get_scanner_pos" + str(self.get_scanner_position()))
+        # pitools.waitontarget(self.e727_controller) #, axes=axis) # this takes up ca. 0.12 s...
+        # self._current_position = [x, y, z, a][0:len(self.get_scanner_axes())]
+        # wait_time = time.clock() - t0
+        # time.sleep(8*wait_time)
+        # print(wait_time)
         return 0
 
     def get_scanner_position(self):
@@ -305,7 +291,6 @@ class ConfocalScannerPI_E727(Base, ConfocalScannerInterface):
             self._set_up_line(np.shape(line_path)[1])
 
         self._current_position = list(line_path[:, -1])
-        # time.sleep(0.001)
         return np.array([[i] for i in range(self._line_length)])#.transpose()
 
 

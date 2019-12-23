@@ -147,8 +147,8 @@ class TimeTaggerCounter(Base, SlowCounterInterface):
                 n_values=1
             )
 
-        self.log.info('set up counter with {0}'.format(self._count_frequency))
-        self._tagger.sync()
+        self.log.info('set up counter with update frequency {0}Hz'.format(self._count_frequency))
+        # self._tagger.sync()
         return 0
 
     def get_counter_channels(self):
@@ -216,7 +216,7 @@ class TimeTaggerCounter(Base, SlowCounterInterface):
             return np.array([self.counter0.getData(),
                              self.counter1.getData()])
         #print(self.counter.getCaptureDuration())
-        self._tagger.sync()
+        # self._tagger.sync()
 
         #return 0
 
@@ -224,7 +224,7 @@ class TimeTaggerCounter(Base, SlowCounterInterface):
         """ Start the fast counter. """
         self.counter.clear()
         self.counter.start()
-        self._tagger.sync()
+        # self._tagger.sync()
         return 0
 
     def stop_measure(self):
