@@ -47,17 +47,18 @@ class T1Logic(GenericLogic):
     fitlogic = Connector(interface='FitLogic')
     savelogic = Connector(interface='SaveLogic')
 
-    # config option
-    # clock_frequency = StatusVar('clock_frequency', 200)
-    default_repeat = 9
 
+    default_repeat = 10
+    time_resolution = 100
+
+    # Sweep parameters:
     size_increments = 0
     num_increments = 0
 
-    init_duration = 2#1000
+    init_duration = 1000
     counter_delay = init_duration
-    interleave_duration = 1000#500 # tau
-    collection_duration = 200
+    interleave_duration = 500 # tau
+    collection_duration = 100000
     intersequence_delay = 1000
     # the above are all in units of ns.
 
@@ -94,13 +95,9 @@ class T1Logic(GenericLogic):
                       .format(self._laser_channel))
         self.log.info('PulseStreamer configured to use  channel {0} as trigger channel fr TT gating'
                       .format(self._trigger_channel))
-        # print('self._laser_channel: ' + str(self._laser_channel))
-        # print('self._trigger_channel: ' + str(self._trigger_channel))
-        # print('self._counter_channel: ' + str(self._counter_channel))
-        # print("waiting_time: " + str(sum((self.init_duration, self.interleave_duration, self.collection_duration, self.intersequence_delay)) * self.default_repeat) + ' ns')
 
-        # self.set_up_laser()
-        # self.set_up_counter()
+        self.set_up_laser()
+        self.set_up_counter()
 
 
         # Test sequence:
@@ -134,7 +131,7 @@ class T1Logic(GenericLogic):
 
 
     def set_up_laser(self):
-        self.laser_hw.on()
+        return self.laser_hw.on()
 
 
     def set_up_counter(self, bin_width_s=0, record_length_s=0, number_of_gates=0):
@@ -146,8 +143,7 @@ class T1Logic(GenericLogic):
             bin_width_s = self.collection_duration*1e-10
         if record_length_s == 0:
             record_length_s = self.collection_duration*1e-9
-        self.fastcounter_hw.configure(bin_width_s, record_length_s, number_of_gates)
-        return 0
+        return self.fastcounter_hw.configure(bin_width_s, record_length_s, number_of_gates)
 
 
     def set_up_mw_gen(self):
@@ -162,7 +158,6 @@ class T1Logic(GenericLogic):
                             (initializasion_duration_in_ns, counter_delay_in_ns, interleave_duration or tau_in_ns, collection_duration_in_ns, intersequence_delay_in_ns) in units of ns
         :return tuple:      tuple containing: waveform_name, tuple(channel_seqs_names), dict(digi_samples)
         """
-        time.clock()
         seq_after_init = [(parameters[2], 0), (parameters[3], 1)] #, (parameters[4], 0)]
         _sequence_laser = [(parameters[4], 0), (parameters[0], 1)] + seq_after_init
         _sequence_counter = [((parameters[4] + parameters[1]), 0), (parameters[0] - parameters[1], 1)] + seq_after_init
@@ -219,6 +214,7 @@ class T1Logic(GenericLogic):
             seq_parameters_dict = {}
             seq_parameters_dict['ensemble'] = waveform_name
             seq_parameters_dict['repetitions'] = repeat
+            seq_parameters_dict['interleave'] = interleave # this shuld maybe be commented... dont know if write_seq method is compatible w. this....
             parameter_list.append((channel_seqs, seq_parameters_dict))
         # make sequence consisting of all waveforms and write it.
         self.pulser_hw.write_sequence(sequence_name, parameter_list)
@@ -244,28 +240,30 @@ class T1Logic(GenericLogic):
         if parameters == None:
             parameters = (self.init_duration, self.counter_delay, self.interleave_duration, self.collection_duration,
                           self.intersequence_delay)
-        t0 = time.time()
-        self.fastcounter_hw.configure(parameters[3] * 1e-10, parameters[3] * 1e-9, repeat)
+        # t0 = time.time()
+        self.fastcounter_hw.configure(parameters[3]/self.time_resolution * 1e-9, parameters[3] * 1e-9, repeat)
         data_dict = {}
         seq_name, parameter_list = self.generate_T1_measurement_sequences(parameters, param_sweep, repeat, sequence_name)
         # print(str(time.time() - t0))
         for channel_seqs, seq_parameters_dict in parameter_list:
             self.load_sequence_to_pulser(seq_name)
+            # self.pulser_hw.plot_loaded_asset()
             data_dict[seq_parameters_dict['ensemble']] = []
-            print(str(time.time() - t0))
+            # input("Press Enter to continue...")
+            # t0 = time.time()
             self.fastcounter_hw.start_measure()
             self.pulser_hw.pulser_on()
-            print(str(time.time() - t0))
-            time.sleep(sum((parameters[0], parameters[2], parameters[3], parameters[4]))*repeat*1e-9)
-            print(str(time.time() - t0))
+            # print(str(time.time() - t0))
+            time.sleep(0.5 + sum((parameters[0], parameters[2], parameters[3], parameters[4]))*1e-9*repeat)
+            # print(str(time.time() - t0))
             data_dict[seq_parameters_dict['ensemble']].append(self.fastcounter_hw.get_data_trace()[0])
             # print(str(time.time() - t0))
             self.pulser_hw.pulser_off()
+            # self.pulser_hw.reset()
             self.fastcounter_hw.stop_measure()
             # data_dict[seq_parameters_dict['ensemble']] = sum(data_dict[seq_parameters_dict['ensemble']][0][0]) #/(repeat+1)
             # print(str(time.time() - t0))
         return data_dict
-        # why do we only get 0 counts?
 
 
 # ============== internal funct.s ===============
@@ -285,7 +283,7 @@ class T1Logic(GenericLogic):
         """
         generates load_dict for wavefom in accordence w. the parameters
         :param parameters:  str defining the waveform name.
-        :param parameters:  tuple containing:
+        :param parameters:  tuple containing parameters characterizing the waveform eg.:
                             (initializasion_duration_in_ns, counter_delay_in_ns, interleave_duration or tau_in_ns, collection_duration_in_ns, intersequence_delay_in_ns) in units of ns
         :return:            Dictionaries containing as keys the generic channel indices and as values the corresponding waveform channel-names.
         """
