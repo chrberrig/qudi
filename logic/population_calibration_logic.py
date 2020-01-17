@@ -47,18 +47,18 @@ class PopulationCalibrationLogic(GenericLogic):
     fitlogic = Connector(interface='FitLogic')
     savelogic = Connector(interface='SaveLogic')
 
-    default_repeat = 999
+    default_repeat = int(1e5)
     time_resolution = 100
 
     # Sweep parameters:
     size_increments = 1
-    num_increments = 10
+    num_increments = 5
 
     # Sequence parameters:
-    laser_delay = 5
-    laser_ontime = 10
+    laser_delay = 2*int(1e6)
+    laser_ontime = 2*int(1e3)
     laser_power = 5
-    intersequence_delay = 1000
+    intersequence_delay = 2*int(1e6)
     # the above are all in units of ns.
 
 
@@ -140,6 +140,7 @@ class PopulationCalibrationLogic(GenericLogic):
                             (laser_delay, laser_ontime_in_ns, laser_power, intersequence_delay_in_ns) in units of ns
         :return tuple:      tuple containing: waveform_name, tuple(channel_seqs_names), dict(digi_samples)
         """
+        print('Entering generate_population_waveform: ' + str(time.clock()))
         seq_common = [(parameters[0], 0), (parameters[1], 1), (parameters[3], 0)]
         _sequence_laser = seq_common
         _sequence_counter = seq_common
@@ -157,6 +158,7 @@ class PopulationCalibrationLogic(GenericLogic):
         empty_array = np.array([0] * measurement_duration)
         digi_samples = {}
         channel_seqs = []
+        print('generate_population_waveform forloop: ' + str(time.clock()))
         for chnl, val in self.pulser_hw.get_active_channels().items():
             channel_seqs.append(waveform_name + chnl[-4:])
             ch_index = self._channel_to_index(chnl)
@@ -168,6 +170,7 @@ class PopulationCalibrationLogic(GenericLogic):
             #     digi_samples[chnl] = self.measurement_sequence_mw_gen
             else:
                 digi_samples[chnl] = empty_array
+        print('generate_population_waveform write_waveform: ' + str(time.clock()))
         self.pulser_hw.write_waveform(waveform_name, {}, digi_samples, True, True, measurement_duration)
         return waveform_name, tuple(channel_seqs), digi_samples
 
@@ -181,12 +184,14 @@ class PopulationCalibrationLogic(GenericLogic):
         :param repeat:      Number of repeats for each choice of interleave-time
         :return str:        sequence name of created sequence.
         """
+        print('Entering generate_population_measurement_sequences: ' + str(time.clock()))
         if param_sweep[1] > 100 or param_sweep[0] > 100:
             self.log.error('Error occurred in sequence writing process. Process terminated.'
                            'Laser sweep parameters are ill defined.')
         # crate sequence
         parameter_list = []
         laserlist = self.make_param_sweep_list(parameters[2], param_sweep[0], param_sweep[1])
+        print('generate_population_measurement_sequences forloop: ' + str(time.clock()))
         for laserpower in laserlist:
             loopparameters = (parameters[0], parameters[1], laserpower, parameters[3])
             waveform_name, channel_seqs, digi_samples = self.generate_population_waveform(sequence_name, loopparameters)
@@ -196,7 +201,8 @@ class PopulationCalibrationLogic(GenericLogic):
             seq_parameters_dict['laserpower'] = laserpower
             parameter_list.append((channel_seqs, seq_parameters_dict))
         # make sequence consisting of all waveforms and write it.
-        self.pulser_hw.write_sequence(sequence_name, parameter_list)
+        print('generate_population_measurement_sequences write_sequence: ' + str(time.clock()))
+        self.pulser_hw.write_sequence(sequence_name, parameter_list) # this is super ineffective...
         return sequence_name, parameter_list
 
     def perform_population_measurement_routine(self, parameters=None, param_sweep=None, repeat=0, sequence_name='T1_measuerment_sequence'):
@@ -209,6 +215,7 @@ class PopulationCalibrationLogic(GenericLogic):
         :param repeat:      Number of repeats for each choice of interleave-time
         :return str:        sequence name of created sequence.
         """
+        print('entering perform_population_measurement_routine: ' + str(time.clock()))
         if repeat == 0:
             repeat = self.default_repeat
 
@@ -223,6 +230,7 @@ class PopulationCalibrationLogic(GenericLogic):
         self.fastcounter_hw.configure(parameters[1]/self.time_resolution * 1e-9, parameters[1] * 1e-9, repeat)
         data_dict = {}
         seq_name, parameter_list = self.generate_population_measurement_sequences(parameters, param_sweep, repeat, sequence_name)
+        print('perform_population_measurement_routine forloop: ' + str(time.clock()))
         for channel_seqs, seq_parameters_dict in parameter_list:
             self.load_sequence_to_pulser(seq_name)
             # self.pulser_hw.plot_loaded_asset()
@@ -231,17 +239,22 @@ class PopulationCalibrationLogic(GenericLogic):
             self.laser_hw.set_current(float(seq_parameters_dict['laserpower']))
             self.fastcounter_hw.start_measure()
             self.pulser_hw.pulser_on()
-            # for rep in range(repeat+1):
-            #     self.pulser_hw.pulser_on()
-            #     time.sleep(parameters[3]*1e-9)
-            #     data_dict[seq_parameters_dict['ensemble']].append(self.fastcounter_hw.get_data_trace()[0])
+            print('enter sleep: ' + str(time.clock()))
             time.sleep(1.5 + sum([parameters[0], parameters[1], parameters[3]])*1e-9*repeat)
-            data_dict[seq_parameters_dict['ensemble']].append(self.fastcounter_hw.get_data_trace()[0])
-            # data_dict[seq_parameters_dict['ensemble']] = sum(data_dict[seq_parameters_dict['ensemble']][0][0]) #/(repeat+1)
+            print('end sleep: ' + str(time.clock()))
+            data_dict[seq_parameters_dict['ensemble']] = self.fastcounter_hw.get_data_trace()[0]
+            # data_dict[seq_parameters_dict['ensemble']] = sum(data_dict[seq_parameters_dict['ensemble']][0]) #/(repeat+1)
             self.pulser_hw.pulser_off()
             # self.pulser_hw.reset()
             self.fastcounter_hw.stop_measure()
-            data_dict[seq_parameters_dict['ensemble']] = np.sum(data_dict[seq_parameters_dict['ensemble']][0], axis=0)#, keepdims=True)
+            self._save_logic.save_data({seq_parameters_dict['ensemble']: data_dict[seq_parameters_dict['ensemble']]},
+                                       parameters={'laser_ontime': self.laser_ontime,
+                                                   'laser_power': self.laser_power,
+                                                   'intersequence_delay': (self.intersequence_delay+self.laser_delay)},
+                                       filetype="npz"
+                                       # delimiter='\n'
+                                       )
+            data_dict[seq_parameters_dict['ensemble']] = np.sum(data_dict[seq_parameters_dict['ensemble']], axis=0)
         return data_dict
 
 # ============== internal funct.s ===============
@@ -331,3 +344,20 @@ class PopulationCalibrationLogic(GenericLogic):
             return int(ch[-1]) - 1
         else:
             self.log.error('Channel not given or ill-defined')
+
+    def _load_data(self, npz_file, inspect=False, file_entry=None):
+        """
+        Loads data from npz file (campatible w. savelogic)
+        :param str npz_file: path to .npz file containing data to be loaded.
+        # :param str file_entry: file-entry of data to be loaded
+        :return: returns actual np.ndarrray containing data.
+        """
+
+        if inspect == True:
+            return np.load(npz_file).files
+        else:
+            if file_entry == None:
+                data_load = np.load(npz_file)[np.load(npz_file).files[0]]
+            elif file_entry in np.load(npz_file).files:
+                data_load = np.load(npz_file)[file_entry]
+            return data_load

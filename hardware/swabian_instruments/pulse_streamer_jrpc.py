@@ -285,7 +285,7 @@ class PulseStreamer(Base, PulserInterface):
                              created waveform names
         """
 
-        print(name, digital_samples, total_number_of_samples)
+        # print(name, digital_samples, total_number_of_samples)
 
         waveforms = list()
 
@@ -328,7 +328,7 @@ class PulseStreamer(Base, PulserInterface):
         return number_of_samples, waveforms
 
 
-    def write_sequence(self, name, sequence_parameters):
+    def write_sequence(self, name, sequence_parameters): # this is super inefficient!!!
         """
         Write a new sequence on the device memory.
 
@@ -473,7 +473,7 @@ class PulseStreamer(Base, PulserInterface):
         self.to_be_streamed = self.pulse_streamer.createSequence()
         return_dict = {}
         for seq_chnl_name, ps_seq in self.seq_master_dict[sequence_name].items():
-            print(self._channel_to_index(seq_chnl_name), ps_seq)
+            # print(self._channel_to_index(seq_chnl_name), ps_seq)
             self.to_be_streamed.setDigital(self._channel_to_index(seq_chnl_name), ps_seq)
             return_dict[self._channel_to_index(seq_chnl_name)+1] = seq_chnl_name
 
