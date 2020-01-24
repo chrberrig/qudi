@@ -303,6 +303,7 @@ class DLnsec(Base, SimpleLaserInterface):
             @return str: much laser, very useful
         """
         response = self.read_serial('*IDN')
+        print(response)
         model, sernum = response.split('_')
         sernum = model[5:] + '_' + sernum
 

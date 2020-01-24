@@ -25,6 +25,9 @@ Copyright (c) the Qudi Developers. See the COPYRIGHT.txt file at the
 top-level directory of this distribution and at <https://github.com/Ulm-IQO/qudi/>
 """
 
+from inspect import currentframe, getframeinfo
+# frameinfo = getframeinfo(currentframe())
+
 from core.module import Base
 from core.configoption import ConfigOption
 from core.util.modules import get_home_dir
@@ -310,7 +313,8 @@ class PulseStreamer(Base, PulserInterface):
             waveform_name = name + chnl[1:]
             waveforms.append(waveform_name)
             if waveform_name not in self.ps_waveforms_dict.keys():
-                self.ps_waveforms_dict[waveform_name] = self._array_to_ps_sequence(samples)
+                self.ps_waveforms_dict[waveform_name] = self._array_to_ps_sequence_array(samples)
+                # print(self.ps_waveforms_dict[waveform_name])
                 # self.bin_waveforms_dict[waveform_name] = samples
             if waveform_name not in self.waveform_channel_names:
                 self.waveform_channel_names.append(waveform_name)
@@ -328,7 +332,7 @@ class PulseStreamer(Base, PulserInterface):
         return number_of_samples, waveforms
 
 
-    def write_sequence(self, name, sequence_parameters): # this is super inefficient!!!
+    def write_sequence(self, name, sequence_parameters):
         """
         Write a new sequence on the device memory.
 
@@ -342,7 +346,8 @@ class PulseStreamer(Base, PulserInterface):
         @return: int, number of sequence steps written (-1 indicates failed process)
         """
         # print(name, sequence_parameters)
-        # constructing the ps sequence elements (human-readable to be loaded into the channels)
+        # constructing the ps sequence elements (human-readable nparrays to be loaded into the channels)
+        # t0 = time.clock()
         init = True
         for channels, dict in sequence_parameters:
             # initializes ps_sequence_dict
@@ -350,8 +355,7 @@ class PulseStreamer(Base, PulserInterface):
                 init = False
                 for chnl in channels:
                     sequence_channel_name = name + '_' + str(self._channel_to_index(chnl) + 1)
-                    self.ps_sequence_dict[sequence_channel_name] = []
-                    # self.bin_sequence_dict[sequence_channel_name] = np.array([])
+                    self.ps_sequence_dict[sequence_channel_name] = np.empty([0, 2])
             ensemble = dict['ensemble']
             #Checks that ensemble has been read in as waveform.
             if ensemble not in self.waveform_names:
@@ -361,23 +365,23 @@ class PulseStreamer(Base, PulserInterface):
             reps = dict['repetitions']
             for chnl in channels:
                 sequence_channel_name = name + '_' + str(self._channel_to_index(chnl) + 1)
-                for i in range(reps + 1):
-                    self.ps_sequence_dict[sequence_channel_name] = self.ps_sequence_dict[sequence_channel_name] + self.ps_waveforms_dict[chnl]                            #
-                #     self.bin_sequence_dict[sequence_channel_name] = np.concatenate((self.bin_sequence_dict[sequence_channel_name], self.bin_waveforms_dict[chnl]), axis=0)  #
-                # self.ps_sequence_dict[sequence_channel_name] = self._array_to_ps_sequence(self.bin_sequence_dict[sequence_channel_name])                                    #
-                self.ps_sequence_dict[sequence_channel_name] = self._simplify_ps_seq(self.ps_sequence_dict[sequence_channel_name])
+                to_cat = np.concatenate(list(self.ps_waveforms_dict[chnl] for i in range(reps + 1)), axis=0)
+                self.ps_sequence_dict[sequence_channel_name] = np.concatenate((self.ps_sequence_dict[sequence_channel_name], to_cat), axis=0)
+                self.ps_sequence_dict[sequence_channel_name] = self._simplify_ps_seq(self.ps_sequence_dict[sequence_channel_name]) # rewrite self._simplify_ps_seq for use w np.arrays for efficiency.
+            # print('l:' + str(getframeinfo(currentframe()).lineno) + '_' + str(time.clock() - t0))
+        # removes the initializasion array(first row) from sequence.
+        self.ps_sequence_dict[sequence_channel_name]
         self.seq_master_dict[name] = self.ps_sequence_dict
-
         # updating variable wrt. what is "loaded" into PS.
         temp_dict = {}
         for seq_name, ps_seq in self.ps_sequence_dict.items():
             temp_dict[self._channel_to_index(seq_name) + 1] = seq_name
-
-        # self.waveform_channel_names = []
         self.sequence_names.append(name)
         self.sequence_channel_names = [s for s in self.ps_sequence_dict.keys()]
         self.current_loaded_asset = temp_dict, 'sequence'
-
+        # print('l:' + str(getframeinfo(currentframe()).lineno) + '_' + str(time.clock() - t0))
+        # print(len(sequence_parameters))
+        # print(sequence_parameters)
         return len(sequence_parameters)
 
 
@@ -425,16 +429,16 @@ class PulseStreamer(Base, PulserInterface):
                                 '"load_waveform" call ignored.'.format(load_dict))
                 return -1
             self.to_be_streamed.setDigital(channel-1, self.ps_waveforms_dict[waveform])
+            # print(self.ps_waveforms_dict[waveform])
 
         # load process goes here:
         # defining pulse structures and respective channels and actually loads sequence into channels.
-        blank_pulse = OutputState.ZERO()
-        laser_on = OutputState([self._laser_channel], 0, 0)
-        laser_and_uw_on = OutputState([self._laser_channel, self._uw_x_channel], 0, 0)
+        # blank_pulse = OutputState.ZERO()
+        # laser_on = OutputState([self._laser_channel], 0, 0)
+        # laser_and_uw_on = OutputState([self._laser_channel, self._uw_x_channel], 0, 0)
         self.pulse_streamer.stream(self.to_be_streamed, n_runs=1) # , final=laser_and_uw_on)
 
         if bool(self.pulse_streamer.hasSequence()):
-            # self.to_be_streamed.plot()
             # self.to_be_streamed.getData()
             self.log.info('Waveform uploaded to PulseStreamer')
             self.current_loaded_asset = load_dict, 'waveform'
@@ -462,16 +466,18 @@ class PulseStreamer(Base, PulserInterface):
             return {}
         # check if asset exists
         saved_assets = self.get_sequence_names()
-        if sequence_name not in saved_assets:
+        if sequence_name not in saved_assets: #
             self.log.error('No sequence with name "{0}" found for PulseStreamer.\n'
                            '"load_sequence" call ignored.'.format(sequence_name))
             return -1
 
-        # Check is sequence already exists on PulseStreamer Hardware, and clears it.
+        # Check is any sequence already exists on PulseStreamer Hardware, and clears it.
         if self.pulse_streamer.hasSequence():
             self.reset()
         self.to_be_streamed = self.pulse_streamer.createSequence()
         return_dict = {}
+
+        #TODO write case for singe waveform in seq for repeats to infinity.
         for seq_chnl_name, ps_seq in self.seq_master_dict[sequence_name].items():
             # print(self._channel_to_index(seq_chnl_name), ps_seq)
             self.to_be_streamed.setDigital(self._channel_to_index(seq_chnl_name), ps_seq)
@@ -756,7 +762,26 @@ class PulseStreamer(Base, PulserInterface):
             self.log.error('Channel not given or ill-defined')
 
 
-    def _array_to_ps_sequence(self, array):
+    def _array_to_ps_sequence_array(self, array):
+        """
+        Transform np array into pulse streamer sequence format
+
+        @param array: nparray containing the state of the digital channel of pullse streamer pr ns.
+        @return list: nparray consisting of tuples:
+                        first element in tuple is duration in nsec
+                        second element in tuple being the (digital) state of the channel
+        """
+        # state_init = array[0]
+        # np.diff(array)
+        return np.array([(len(a), a[0]) for a in self.consecutive(array, stepsize=0)], dtype=('i8', 'i8'))
+
+    # def identical(self, array, stepsize=0):
+    #     return np.split(array, np.where(np.diff(array) != stepsize)[0] + 1)
+
+    def consecutive(self, array, stepsize=1):
+        return np.split(array, np.where(np.diff(array) != stepsize)[0] + 1)
+
+    def _array_to_ps_sequence(self, array): # this is iniefficient! use np.arrays instead
         """
         Transform np array into pulse streamer sequence format
 
@@ -781,7 +806,15 @@ class PulseStreamer(Base, PulserInterface):
         return _seq
 
 
-    def _simplify_ps_seq(self, list):
+    def _simplify_ps_seq(self, list): # this is iniefficient! use np.arrays instead
+        """
+                Transform np pulse streamer sequence in list format into the simplified version (still list)
+
+                @param array: nparray containing the state of the digital channel of pullse streamer pr ns.
+                @return list: list consisting of tuples:
+                                first element in tuple is duration in nsec
+                                second element in tuple being the (digital) state of the channel
+                """
         ret_list = []
         dur = list[0][0]
         state = list[0][1]
@@ -812,44 +845,3 @@ class PulseStreamer(Base, PulserInterface):
             self.log.warn('PulseStreamer has no uploaded asset.')
         else:
             self.to_be_streamed.plot()
-
-
-
-
-
-
-
-    # def _ps_seq_to_array(self, ps_seq):
-    #     """
-    #     Transform np array into pulse streamer sequence format
-    #
-    #     @param list ps_seq: list consisting of tuples:
-    #                         first element in tuple is duration in nsec
-    #                         second element in tuple being the (digital) state of the channel
-    #
-    #     @return array:  nparray containing the state of the digital channel of pullse streamer pr ns.
-    #     """
-    #     ret_list = []
-    #     for duration, digi_state in ps_seq:
-    #         ret_list = ret_list + [digi_state]*duration
-    #
-    #     return np.asarray(ret_list)
-
-
-    # def _set_up_osc(self, chnl_num, freq):
-    #     """
-    #
-    #     :param int chnl_num:
-    #     :param float freq:
-    #
-    #     :return int: error code (0:OK, -1:error)
-    #     """
-    #
-    #     # convert freq. to a "ON/OFF" single cycle in the PS list-tuple format, and upload it to corresponding channel.
-    #     cycle_duration = int(1e9/freq) # in picosec
-    #     pattern = [(cycle_duration/2, 1), (cycle_duration - cycle_duration/2, 0)]
-    #     wave = self.pulse_streamer.createSequence()
-    #     wave.setDigital(chnl_num, pattern)
-    #     self.pulse_streamer.stream(wave, n_runs=self.pulse_streamer.REPEAT_INFINITELY) #, final=laser_and_uw_on)
-    #
-    #     return 0
