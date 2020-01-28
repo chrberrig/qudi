@@ -65,6 +65,8 @@ class PulseStreamer(Base, PulserInterface):
         self.__samples_written = 0
         self._trigger = ps.TriggerStart.SOFTWARE
         self._laser_mw_on_state = ps.OutputState([self._laser_channel, self._uw_x_channel], 0, 0)
+        self._seq = dict()
+        self._num_runs = -1
 
     def on_activate(self):
         """ Establish connection to pulse streamer and tell it to cancel all operations """
@@ -226,7 +228,7 @@ class PulseStreamer(Base, PulserInterface):
         @return int: error code (0:OK, -1:error)
         """
         if self._seq:
-            self.pulse_streamer.stream(self._seq)
+            self.pulse_streamer.stream(self._seq, n_runs=self._num_runs)
             self.pulse_streamer.startNow()
             self.__current_status = 1
             return 0
@@ -747,3 +749,18 @@ class PulseStreamer(Base, PulserInterface):
         @return: bool, True for yes, False for no.
         """
         return False
+
+#   === Internal/Helper funct.s ===
+
+    def set_num_runs(self, reps):
+        assert type(reps) == int
+        self._num_runs = reps
+
+    def plot_loaded_asset(self):
+        if self._seq == dict():
+            self.log.warn('PulseStreamer has no uploaded asset.')
+        else:
+            self._seq.plot()
+
+
+
