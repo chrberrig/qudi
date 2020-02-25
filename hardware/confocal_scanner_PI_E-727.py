@@ -243,11 +243,10 @@ class ConfocalScannerPI_E727(Base, ConfocalScannerInterface):
         # t0 = time.clock()
         for axis, target in zip(self.e727_controller.axes, coord_list[:-1]):
             self.e727_controller.MOV(axis, target)
-        # pitools.waitontarget(self.e727_controller) #, axes=axis) # this takes up ca. 0.12 s...
-        # self._current_position = [x, y, z, a][0:len(self.get_scanner_axes())]
+        pitools.waitontarget(self.e727_controller) #, axes=axis) # this takes up ca. 0.12 s...
         # wait_time = time.clock() - t0
-        # time.sleep(8*wait_time)
-        # print(wait_time)
+        self._current_position = [x, y, z, a][0:len(self.get_scanner_axes())]
+        print('current_scanner_position: ' + str(self._current_position))
         return 0
 
     def get_scanner_position(self):
@@ -256,10 +255,9 @@ class ConfocalScannerPI_E727(Base, ConfocalScannerInterface):
         @return float[]: current position in (x, y, z, a).
         """
 
-        curpos = self.e727_controller.qPOS()
-        # print(curpos)
-        self._current_position = [curpos['1'], curpos['2'], curpos['3'], self._current_position[-1]]
-
+        # curpos = self.e727_controller.qPOS()
+        # self._current_position = [curpos['1']*1e-6, curpos['2']*1e-6, curpos['3']*1e-6, self._current_position[-1]*1e-6]
+        # # self._current_position = [curpos['1'], curpos['2'], curpos['3'], self._current_position[-1]]
         return self._current_position[0:len(self.get_scanner_axes())]
 
     def _set_up_line(self, length=100):

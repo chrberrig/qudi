@@ -159,7 +159,7 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
 
         # self._counter_hw.set_up_clock(1000)
 
-        self.log.warning('ConfocalScannerInterfaceDummy>set_up_scanner')
+        self.log.warning('ConfocalScannerInterface>set_up_scanner')
         return 0
 
     def get_scanner_axes(self):
@@ -231,14 +231,14 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
         for i in range(self._line_length):
             # t0 = time.clock()
             coords = line_path[:, i]
-            print('coords: ' + str(coords))
+            # print('coords: ' + str(coords))
             self.scanner_set_position(x=coords[0], y=coords[1], z=coords[2], a=coords[3])
             count_data[i] = self._counter_hw.get_counter()[0][0]/self.clock_frequency
             # updating_current position.
             # self._current_position = list(line_path[:, -1])
             # self._current_position = list(coords)
             self._current_position = list(self.get_scanner_position())
-            print('_current_position: ' + str(self._current_position))
+            # print('_current_position: ' + str(self._current_position))
             # print(time.clock()-t0)
         self._counter_hw.stop_measure()
 

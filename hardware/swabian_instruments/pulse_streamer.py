@@ -762,5 +762,16 @@ class PulseStreamer(Base, PulserInterface):
         else:
             self._seq.plot()
 
+    def set_constant(self, chnl_list):
+        """ Switches the pulsing device off.
+
+        @ param list: list containing (ordered) chanel numbers to be in active const. state.
+
+        @return int: error code (0:OK, -1:error)
+        """
+
+        self.__current_status = 0
+        self.pulse_streamer.constant(ps.OutputState(chnl_list, 0, 0))
+        return 0
 
 

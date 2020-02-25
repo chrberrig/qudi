@@ -42,23 +42,27 @@ class PopulationCalibrationLogic(GenericLogic):
     # declare connectors
     laser = Connector(interface='SimpleLaserInterface')
     fastcounter = Connector(interface='FastCounterInterface')
+    slowcounter = Connector(interface='SlowCounterInterface')
     pulser = Connector(interface='PulserInterface')
+    scanner = Connector(interface='ConfocalScannerInterface')
     # mw_generator = Connector(interface='MicrowaveInterface')
     fitlogic = Connector(interface='FitLogic')
     savelogic = Connector(interface='SaveLogic')
+    optimizerlogic = Connector(interface='OptimizerLogic')
 
-    default_repeat = int(1e6)
-    time_resolution = 100
+    default_repeat = int(1e7)
+    num_optim = 100
+    time_resolution = 10000
 
     # Sweep parameters:
-    size_increments = 1
-    num_increments = 5
+    size_increments = 0 #1
+    num_increments = 0 #5
 
     # Sequence parameters:
-    laser_delay = 2*int(1e6)
+    laser_delay = 4*int(1e6)
     laser_ontime = 2*int(1e3)
     laser_power = 5
-    intersequence_delay = 2*int(1e6)
+    intersequence_delay = 4*int(1e6)
     # the above are all in units of ns.
 
 
@@ -73,10 +77,13 @@ class PopulationCalibrationLogic(GenericLogic):
         # Get connectors
         self.laser_hw = self.laser()
         self.fastcounter_hw = self.fastcounter()
+        self.slowcounter_hw = self.slowcounter()
         self.pulser_hw = self.pulser()
+        self.scanner_hw = self.scanner()
         # self.mw_gen_hw = self.mw_generator()
         self._fit_logic = self.fitlogic()
         self._save_logic = self.savelogic()
+        self._optimizer_logic = self.optimizerlogic()
 
         # collects relevant channels from hardware.
         #TODO: this is at the moment rather hardware specific. Maybe implement this as a configOption...
@@ -197,42 +204,94 @@ class PopulationCalibrationLogic(GenericLogic):
 
 #       ================== Sanity checks =====================
 
-        if param_sweep[1] > 100 or param_sweep[0] > 100:
+        if param_sweep[1] > 100 or param_sweep[0] > 100 or param_sweep[1] < 0 or param_sweep[0] < 0:
             self.log.error('Error occurred in sequence writing process. Process terminated. '
                            'Laser sweep parameters (power/current) are ill defined. Must be integer between 0 and 100')
 
 #       ================== Actual measurement procedure =====================
 
-        self.fastcounter_hw.configure(parameters[1] / self.time_resolution * 1e-9, parameters[1] * 1e-9, repeat)
-        self.pulser_hw.set_num_runs(repeat)
+        # self.fastcounter_hw.configure(parameters[1] / self.time_resolution * 1e-9, parameters[1] * 1e-9, repeat/self.num_optim)
+        # print(repeat, self.num_optim, repeat/self.num_optim)
+        self.pulser_hw.set_num_runs(int((repeat+1)/(self.num_optim+1)))
         data_dict = {}
+        data_dict_opt = {}
+        position_array = np.zeros((self.num_optim+1, 4))
         # crates the parameters to sweep, and inside loop, write and load waveforms from these parameters.
         laserlist = self.make_param_sweep_list(parameters[2], param_sweep[0], param_sweep[1])
         for laserpower in laserlist:
             loopparameters = (parameters[0], parameters[1], laserpower, parameters[3])
+            sleep_time = 1 + sum([loopparameters[0], loopparameters[1], loopparameters[3]]) * 1e-9 * int((repeat + 1) / (self.num_optim + 1))
+            self.laser_hw.set_current(float(laserpower))
             waveform_name, channel_wf_name, digi_samples = self.generate_population_waveform(wf_name, loopparameters)
             self.pulser_hw.load_waveform(self.pulser_hw.get_waveform_names())
+            # time.sleep(5)
             # self.pulser_hw.plot_loaded_asset()
             data_dict[waveform_name] = []
-            self.laser_hw.set_current(float(laserpower))
-            self.fastcounter_hw.start_measure()
-            self.pulser_hw.pulser_on()
-            time.sleep(1.5 + sum([loopparameters[0], loopparameters[1], loopparameters[3]])*1e-9*repeat)
-            data_dict[waveform_name] = self.fastcounter_hw.get_data_trace()[0]
-            self.pulser_hw.pulser_off()
-            # self.pulser_hw.reset()
-            self.fastcounter_hw.stop_measure()
+            num_bins = 1 + int(self.time_resolution)
+            data_dict_opt[waveform_name] = np.zeros((self.num_optim+1, num_bins))
+            self.fastcounter_hw.configure(parameters[1] / self.time_resolution * 1e-9, parameters[1] * 1e-9, int((repeat + 1) / (self.num_optim + 1)))
+            self.single_run(sleep_time)
+            data_dict_opt[waveform_name][0] = np.sum(self.fastcounter_hw.get_data_trace()[0], axis=0)
+# --------------------------- optimization: --------------------------------
+            self.slowcounter_hw.set_up_counter()
+            ref_count = self.slowcounter_hw.get_counter()[0][0] + 1
+            print('ref_count: ' + str(ref_count))
+# --------------------------- tab for loop wrt. optimize: --------------------------------
+            for i in range(1, 1+self.num_optim):
+                print('optimizasion round: ' + str(i))
+                self.optimize_pos(ref_count)
+                position_array[i-1] = self.scanner_hw.get_scanner_position()
+                self.fastcounter_hw.configure(parameters[1] / self.time_resolution * 1e-9, parameters[1] * 1e-9, int((repeat+1)/(self.num_optim+1)))
+                self.single_run(sleep_time)
+                data_dict_opt[waveform_name][i] = np.sum(self.fastcounter_hw.get_data_trace()[0], axis=0)
+# ----------------------------------------------------------------------------------------
+                # data_dict_opt[waveform_name] = np.sum(data_dict_opt[waveform_name], axis=0)
+            data_dict[waveform_name] = np.sum(data_dict_opt[waveform_name], axis=0)
+
+            print(data_dict_opt[waveform_name])
+            print(data_dict[waveform_name])
             self._save_logic.save_data({waveform_name: data_dict[waveform_name]},
                                        parameters={'laser_ontime': self.laser_ontime,
-                                                   'laser_power': self.laser_power,
+                                                   'laser_power': '0.1mW', #self.laser_power,
                                                    'intersequence_delay': (self.intersequence_delay+self.laser_delay)},
                                        filetype="npz"
                                        )
-            data_dict[waveform_name] = np.sum(data_dict[waveform_name], axis=0)
+            self._save_logic.save_data({waveform_name: position_array},
+                                       filetype="npz"
+                                       )
             # print('end perform_population_measurement_routine: ' + str(time.clock()))
         return data_dict
 
 #   ============== internal funct.s ===============
+
+    def single_run(self, sleep_time):
+        self.fastcounter_hw.start_measure()
+        self.pulser_hw.pulser_on()
+        time.sleep(sleep_time)
+        # self.pulser_hw.reset()
+        self.pulser_hw.pulser_off()
+        self.fastcounter_hw.stop_measure()
+
+    def pulser_laser_on(self):
+        self.pulser_hw.set_constant([self._laser_channel])
+
+    def optimize_pos(self, ref_count):
+        print("Optimize:")
+        attempt = 0
+        self.slowcounter_hw.set_up_counter()
+        temp_count = self.slowcounter_hw.get_counter()[0][0]
+        print('temp_count: ' + str(temp_count))
+        print('optimizasion index: ' + str(temp_count / ref_count))
+        while temp_count <= 0.85*ref_count:
+            print('here again')
+            self._optimizer_logic.start_refocus() #TODO: why does script terminate here?!!!
+            temp_count = self.slowcounter_hw.get_counter()[0][0]
+            print('temp_count: ' + str(temp_count))
+            print('optimizasion index: ' + str(temp_count/ref_count))
+            attempt += 1
+            print(attempt)
+        print("Optimization done.")
+        print('scanner_pos : ' + str(self.scanner_hw.get_scanner_position()))
 
     def make_param_sweep_list(self, param_min, increment, num_incr):
         """
