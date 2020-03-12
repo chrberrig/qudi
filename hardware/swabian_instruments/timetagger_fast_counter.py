@@ -127,7 +127,11 @@ class TimeTaggerFastCounter(Base, FastCounterInterface):
         """
         self._number_of_gates = number_of_gates
         self._bin_width = bin_width_s * 1e9
-        self._record_length = 1 + int(record_length_s / bin_width_s)
+        # self._record_length = 1 + int(record_length_s / bin_width_s) # old
+        if int(record_length_s / bin_width_s) == 0:
+            self._record_length = 1
+        else:
+            self._record_length = int(record_length_s / bin_width_s)
         self.statusvar = 1
 
         self.pulsed = tt.TimeDifferences(
@@ -143,6 +147,34 @@ class TimeTaggerFastCounter(Base, FastCounterInterface):
         self.pulsed.stop()
 
         return bin_width_s, record_length_s, number_of_gates
+
+    def configure_gated(self, number_of_gates=0):
+
+        """ Configuration of the fast counter.
+        @param float bin_width_s: Length of a single time bin in the time trace
+                                  histogram in seconds.
+        @param float record_length_s: Total length of the timetrace/each single
+                                      gate in seconds.
+        @param int number_of_gates: optional, number of gates in the pulse
+                                    sequence. Ignore for not gated counter.
+        @return tuple(binwidth_s, gate_length_s, number_of_gates):
+                    binwidth_s: float the actual set binwidth in seconds
+                    gate_length_s: the actual set gate length in seconds
+                    number_of_gates: the number of gated, which are accepted
+        """
+        self._number_of_gates = number_of_gates
+        self.statusvar = 1
+
+        self.pulsed = tt.CountBetweenMarkers(
+            tagger=self._tagger,
+            click_channel=self._channel_apd,
+            begin_channel=self._channel_detect,
+            # end_channel=tt.CHANNEL_UNUSED, # self._channel_detect,
+            n_values=int(self._number_of_gates))
+
+        self.pulsed.stop()
+
+        return number_of_gates
 
     def start_measure(self):
         """ Start the fast counter. """

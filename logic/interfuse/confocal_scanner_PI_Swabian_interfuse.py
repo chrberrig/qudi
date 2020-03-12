@@ -39,7 +39,8 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
     fitlogic = Connector(interface='FitLogic')
     PI_E727_controller = Connector(interface='ConfocalScannerInterface')
     timetagger_counter = Connector(interface='SlowCounterInterface')
-#    pulsestreamer = Connector(interface='PulserInterface')
+    pulsestreamer = Connector(interface='PulserInterface')
+    laser = Connector(interface='SimpleLaserInterface')
 
     # config options
     #clock_frequency = ConfigOption('clock_frequency', 100, missing='warn')
@@ -68,11 +69,14 @@ class ConfocalScanner_PI_Swabian_Interfuse(Base, ConfocalScannerInterface):
         self._fit_logic = self.fitlogic()
         self._scanner_hw = self.PI_E727_controller()
         self._counter_hw = self.timetagger_counter()
-        # self._pulser_hw = self.pulsestreamer()
+        self._pulser_hw = self.pulsestreamer()
+        self._laser_hw = self.laser()
 
         # self._counter_hw.set_up_clock(self.clock_frequency, None)
         self.set_up_scanner_clock(self.clock_frequency)
         self._counter_hw.set_up_counter()
+        self._pulser_hw
+        # self._laser_hw.on()
         # self._counter_hw.test_signal([self._counter_hw.get_counter_channels()], True)
 
     def on_deactivate(self):

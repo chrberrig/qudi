@@ -47,6 +47,13 @@ class MicrowaveSynthHDPro(Base, MicrowaveInterface):
     _serial_timeout = ConfigOption('serial_timeout', 10, missing='warn')
     _channel = ConfigOption('output_channel', 0, missing='info')
 
+
+    def __init__(self, config, **kwargs):
+        super().__init__(config=config, **kwargs)
+
+        self.mw_cw_power = -40
+
+
     def on_activate(self):
         """ Initialisation performed during activation of the module.
         """
@@ -227,7 +234,7 @@ class MicrowaveSynthHDPro(Base, MicrowaveInterface):
         self.current_output_mode = MicrowaveMode.LIST
         time.sleep(1)
         self.output_active = True
-        self.log.warn('MicrowaveDummy>List mode output on')
+        self.log.warn('MicrowaveWindfreak>List mode output on')
         return 0
 
     def set_list(self, frequency=None, power=None):
@@ -239,7 +246,7 @@ class MicrowaveSynthHDPro(Base, MicrowaveInterface):
 
         @return list, float, str: current frequencies in Hz, current power in dBm, current mode
         """
-        self.log.debug('MicrowaveDummy>set_list, frequency_list: {0}, power: {1:f}'
+        self.log.debug('MicrowaveWindfreak>set_list, frequency_list: {0}, power: {1:f}'
                        ''.format(frequency, power))
         self.output_active = False
         self.current_output_mode = MicrowaveMode.LIST
@@ -395,4 +402,5 @@ class MicrowaveSynthHDPro(Base, MicrowaveInterface):
         r = int(self._conn.query('r?'))
         # hig/low power selector
         h = int(self._conn.query('h?'))
+        print(E, r, h)
         return E, r, h

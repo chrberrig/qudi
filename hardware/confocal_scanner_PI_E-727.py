@@ -246,7 +246,7 @@ class ConfocalScannerPI_E727(Base, ConfocalScannerInterface):
         pitools.waitontarget(self.e727_controller) #, axes=axis) # this takes up ca. 0.12 s...
         # wait_time = time.clock() - t0
         self._current_position = [x, y, z, a][0:len(self.get_scanner_axes())]
-        print('current_scanner_position: ' + str(self._current_position))
+        # print('current_scanner_position: ' + str(self._current_position))
         return 0
 
     def get_scanner_position(self):

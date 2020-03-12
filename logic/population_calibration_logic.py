@@ -50,20 +50,59 @@ class PopulationCalibrationLogic(GenericLogic):
     savelogic = Connector(interface='SaveLogic')
     optimizerlogic = Connector(interface='OptimizerLogic')
 
-    default_repeat = int(1e7)
-    num_optim = 100
-    time_resolution = 10000
+# ====== Global parameters ======
+    # === Signals ===
+    sigRunFinished = QtCore.Signal()
+    sigNewParameter = QtCore.Signal()
+    sigMeasurementRoutineFinished = QtCore.Signal()
+    sigOptimizasionRoundDone = QtCore.Signal()
 
-    # Sweep parameters:
+    # === channels ===
+    _laser_channel = 0
+    _trigger_channel = 0
+    _counter_channel = 0
+    # _mw_gen_channel =
+
+    # === Internal parameters ===
+    measurement_routine = "pop_cal"
+    wf_name = ""
+    default_repeat = int(1e4)
+    time_resolution = 10
+    num_optim = 2
+    num_attempts = 3
+
+    # === Initialization constants ===
+    ref_count = 1
+    optim_round = 0
+    optim_attempt = 0
+
+    reps_pr_optim = 0
+    sleep_time = 0
+
+    # === Sweep parameters ===
+    init_routine = True
     size_increments = 0 #1
     num_increments = 0 #5
+    param_sweep_list = list()
 
-    # Sequence parameters:
+    # === Data ===
+    data_dict = {}
+    data_dict_opt = {}
+    position_array = np.zeros((num_optim + 1, 4))
+
+# ====== Measurement Routine specific parameters ======
+
+    # === Sequence parameters for pop_cal ===
     laser_delay = 4*int(1e6)
     laser_ontime = 2*int(1e3)
     laser_power = 5
     intersequence_delay = 4*int(1e6)
     # the above are all in units of ns.
+
+    # waveforms for single channels:
+    # measurement_wf_laser = # self._seq_to_array([])
+    # measurement_wf_counter
+    # measurement_wf_mw_gen
 
 
     def __init__(self, config, **kwargs):
@@ -84,6 +123,12 @@ class PopulationCalibrationLogic(GenericLogic):
         self._fit_logic = self.fitlogic()
         self._save_logic = self.savelogic()
         self._optimizer_logic = self.optimizerlogic()
+
+        self._optimizer_logic.sigRefocusFinished.connect(self.optimize_pos, QtCore.Qt.QueuedConnection)
+        self.sigNewParameter.connect(self.perform_measurement_routine, QtCore.Qt.QueuedConnection)
+        # self.sigMeasurementRoutineFinished.connect(self.save_data, QtCore.Qt.QueuedConnection)
+        self.sigRunFinished.connect(self.optimize_pos, QtCore.Qt.QueuedConnection)
+        self.sigOptimizasionRoundDone.connect(self.single_run, QtCore.Qt.QueuedConnection)
 
         # collects relevant channels from hardware.
         #TODO: this is at the moment rather hardware specific. Maybe implement this as a configOption...
@@ -139,7 +184,7 @@ class PopulationCalibrationLogic(GenericLogic):
     def set_up_mw_gen(self):
         pass
 
-    def generate_population_waveform(self, wf_name, parameters):
+    def generate_population_waveform(self, wf_name): #, parameters):
         """
         Genarates pulse waveforms for T1 measuremens wrt. the given parameters.
         :param wf_name:     str defining the waveform name.
@@ -148,19 +193,143 @@ class PopulationCalibrationLogic(GenericLogic):
         :return tuple:      tuple containing: waveform_name, tuple(channel_seqs_names), dict(digi_samples)
         """
         # print('Entering generate_population_waveform: ' + str(time.clock()))
-        seq_common = [(parameters[0], 0), (parameters[1], 1), (parameters[3], 0)]
+        seq_common = [(self.laser_delay, 0), (self.laser_ontime, 1), (self.intersequence_delay, 0)]
         _wf_laser = seq_common
         _wf_counter = seq_common
-        # _wf_mw_gen = [(parameters[1], 0), (parameters[0] - parameters[1], 1)] + seq_after_init
-        waveform_name = wf_name + '_lasercurrent_{0}%'.format(parameters[2])
-
+        _wf_mw_gen = [(self.laser_delay + self.laser_ontime + self.intersequence_delay, 0)] # [(parameters[1], 0), (parameters[0] - parameters[1], 1)] #+ seq_after_init ?
+        waveform_name = wf_name + '_lasercurrent_{0}%'.format(self.laser_power)
         self.measurement_wf_laser = self._seq_to_array(_wf_laser)
         self.measurement_wf_counter = self._seq_to_array(_wf_counter)
-        # self.measurement_wf_mw_gen = self._seq_to_array(_wf_counter)
-        measurement_duration = len(self.measurement_wf_laser)
-        if not len(self.measurement_wf_laser) == len(self.measurement_wf_laser):
-            self.log.error('Error occurred in waveform writing process. Process terminated.')
+        self.measurement_wf_mw_gen = self._seq_to_array(_wf_counter)
+        return self.write_to_pulser(waveform_name)
+
+    def perform_measurement_routine(self): #, measurement_routine):
+        """
+        Genarates all pulse waveforms according to sweep of parameters in measurement routine.
+        :param parameters:  tuple containing:
+                            (laser_delay, laser_ontime_in_ns, laser_power, intersequence_delay_in_ns) in units of ns
+        :param param_sweep: tuple containing:
+                            (increment_size, number_of_increments)
+        :param repeat:      Number of repeats for each choice of interleave-time
+        :return str:        sequence name of created sequence.
+        """
+        # print('Entering perform_population_measurement_routine: ' + str(time.clock()))
+
+        # ================== Setting routine values, depending on global parameters. =====================
+        # param_sweep = (self.size_increments, self.num_increments)
+        # self.measurement_routine = measurement_routine
+        self.reps_pr_optim = int((self.default_repeat + 1) / (self.num_optim + 1))
+        num_bins = 1 + int(self.time_resolution)
+        self.pulser_hw.set_num_runs(self.reps_pr_optim)
+        self.sleep_time = 1 + sum([self.laser_delay, self.laser_ontime, self.intersequence_delay]) * 1e-9 * self.reps_pr_optim
+        # position_array = np.zeros((self.num_optim + 1, 4))
+
+        # ================== Decide measurement routine =====================
+        if self.measurement_routine == 'pop_cal':
+            # parameters = (self.laser_delay, self.laser_ontime, self.laser_power, self.intersequence_delay)
+            if self.init_routine:
+                self.param_sweep_list = self.make_param_sweep_list(self.laser_power,
+                                                                   self.size_increments,
+                                                                   self.num_increments)
+                # ================== Sanity checks =====================
+                if self.num_increments > 100 or self.size_increments > 100 or self.num_increments < 0 or self.size_increments < 0:
+                    self.log.error('Error occurred in sequence writing process. Process terminated. '
+                                   'Laser sweep parameters (power/current) are ill defined. Must be integer between 0 and 100')
+                self.init_routine = False
+            if not self.param_sweep_list:  # check if laserlist is empty:
+                # self.sigMeasurementRoutineFinished.emit()
+                # self.init_routine = True # Comment this line if the procedure should be repeatable...
+                return self.save_data()
+            else:
+                # === set new laser power ===
+                self.laser_power = self.param_sweep_list.pop(0)
+                self.laser_hw.set_current(float(self.laser_power))
+        # === generate and load waveform ===
+            waveform_name, channel_wf_name, digi_samples = self.generate_population_waveform(self.measurement_routine)
+            self.wf_name = waveform_name
+            # self.pulser_hw.load_waveform(self.pulser_hw.get_waveform_names())  # loading waveform
+            # === init data dicts + ref_count ===
+            print('self.optim_round: ' + str(self.optim_round))
+            # if self.optim_round == 0:
+            self.data_dict[waveform_name] = []  # initialize data entries
+            self.data_dict_opt[waveform_name] = np.zeros((self.num_optim + 1, num_bins))
+            # --------------------------- reference count: --------------------------------
+            self.slowcounter_hw.set_up_counter()
+            self.ref_count = self.slowcounter_hw.get_counter()[0][0] + 1
+            self.log.info('ref_count: ' + str(self.ref_count))
+            self.optim_round = 0
+            self.single_run()
+
+
+        # update global variable according to next action:
+
+
+    #   ============== internal funct.s ===============
+
+    def single_run(self): #, sleep_time, reps):
+        # === core functionality ===
+        self.pulser_hw.load_waveform(self.pulser_hw.get_waveform_names())  # loading waveform
+        self.fastcounter_hw.configure(self.laser_ontime / self.time_resolution * 1e-9, self.laser_ontime * 1e-9, self.reps_pr_optim)
+        self.fastcounter_hw.start_measure()
+        self.pulser_hw.pulser_on()
+        time.sleep(self.sleep_time)
+        # self.pulser_hw.reset()
+        self.pulser_hw.pulser_off()
+        self.fastcounter_hw.stop_measure()
+        self.data_dict_opt[self.wf_name][self.optim_round] = np.sum(self.fastcounter_hw.get_data_trace()[0], axis=0)
+        # Save partial data here?
+        # === control flow: ===
+        if self.optim_round < self.num_optim:
+            self.log.info('optimizasion round: ' + str(self.optim_round))
+            self.optim_attempt = 0
+            self.sigRunFinished.emit()
+            # self.optimize_pos()
+        elif self.optim_round == self.num_optim:
+            self.sigNewParameter.emit()
+        return 1
+
+    def optimize_pos(self):
+        self._laser_on()
+        self.slowcounter_hw.set_up_counter()
+        temp_count = self.slowcounter_hw.get_counter()[0][0]
+        # print('temp_count: ' + str(temp_count))
+        self.log.info('optimizasion index: ' + str(temp_count / self.ref_count))
+        # while temp_count <= 0.85*ref_count:
+        if temp_count <= 0.90*self.ref_count and self.optim_attempt < self.num_attempts:
+            self.log.info("Begin Optimization in optimizasion round {0}, attempt {1}:".format(self.optim_round, self.optim_attempt))
+            self._optimizer_logic.start_refocus()
+            self.log.info('optimizasion index: ' + str(temp_count/self.ref_count))
+            self.optim_attempt += 1
+            self.log.info('optimizasion attempt:' + str(self.optim_attempt))
+        else:
+            self.log.info("Optimization round {0} done.".format(self.optim_round))
+            self.position_array[self.optim_round] = self.scanner_hw.get_scanner_position()
+            self.log.info('scanner_pos : ' + str(self.scanner_hw.get_scanner_position()))
+            self.optim_round += 1
+            self.sigOptimizasionRoundDone.emit()
+        return 1
+
+    def save_data(self): # this is experiment dependent...
+        if self.measurement_routine == 'pop_cal':
+            waveform_name = self.wf_name
+            self.data_dict[waveform_name] = np.sum(self.data_dict_opt[waveform_name], axis=0)
+            self._save_logic.save_data({waveform_name: self.data_dict[waveform_name]},
+                                       parameters={'laser_ontime': self.laser_ontime,
+                                                   'laser_power': '0.1mW',  # self.laser_power,
+                                                   'intersequence_delay': (self.intersequence_delay + self.laser_delay)},
+                                       filetype="npz"
+                                       )
+            time.sleep(3)
+            self._save_logic.save_data({waveform_name + '_pos': self.position_array},
+                                       filetype="npz"
+                                       )
+        return self.data_dict
+
+    def write_to_pulser(self, waveform_name):
+        if not len(self.measurement_wf_laser) == len(self.measurement_wf_counter) and not len(self.measurement_wf_laser) == len(self.measurement_wf_mw_gen):
+            self.log.error('Error occurred in waveform writing process. Uneven waveform lengths. Process terminated.')
         # create waveform and write it.
+        measurement_duration = len(self.measurement_wf_laser)
         empty_array = np.zeros(measurement_duration)
         digi_samples = {}
         channel_wf_name = []
@@ -179,119 +348,12 @@ class PopulationCalibrationLogic(GenericLogic):
         # print('end generate_population_waveform: ' + str(time.clock()))
         return waveform_name, tuple(channel_wf_name), digi_samples
 
-    def perform_population_measurement_routine(self, parameters=None, param_sweep=None, repeat=None, wf_name='population_measurement_wf'):
+    def _laser_on(self):
         """
-        Genarates all pulse waveforms according to sweep of parameters in measurement routine.
-        :param parameters:  tuple containing:
-                            (laser_delay, laser_ontime_in_ns, laser_power, intersequence_delay_in_ns) in units of ns
-        :param param_sweep: tuple containing:
-                            (increment_size, number_of_increments)
-        :param repeat:      Number of repeats for each choice of interleave-time
-        :return str:        sequence name of created sequence.
+        Sets pulser laser channel to constant on (pulse streamer specific.)
+        :return:
         """
-        # print('Entering perform_population_measurement_routine: ' + str(time.clock()))
-
-#       ================== Setting arg values to defaults if no inputs are given =====================
-
-        if repeat == None:
-            repeat = self.default_repeat
-
-        if param_sweep == None:
-            param_sweep = (self.size_increments, self.num_increments)
-
-        if parameters == None:
-            parameters = (self.laser_delay, self.laser_ontime, self.laser_power, self.intersequence_delay)
-
-#       ================== Sanity checks =====================
-
-        if param_sweep[1] > 100 or param_sweep[0] > 100 or param_sweep[1] < 0 or param_sweep[0] < 0:
-            self.log.error('Error occurred in sequence writing process. Process terminated. '
-                           'Laser sweep parameters (power/current) are ill defined. Must be integer between 0 and 100')
-
-#       ================== Actual measurement procedure =====================
-
-        # self.fastcounter_hw.configure(parameters[1] / self.time_resolution * 1e-9, parameters[1] * 1e-9, repeat/self.num_optim)
-        # print(repeat, self.num_optim, repeat/self.num_optim)
-        self.pulser_hw.set_num_runs(int((repeat+1)/(self.num_optim+1)))
-        data_dict = {}
-        data_dict_opt = {}
-        position_array = np.zeros((self.num_optim+1, 4))
-        # crates the parameters to sweep, and inside loop, write and load waveforms from these parameters.
-        laserlist = self.make_param_sweep_list(parameters[2], param_sweep[0], param_sweep[1])
-        for laserpower in laserlist:
-            loopparameters = (parameters[0], parameters[1], laserpower, parameters[3])
-            sleep_time = 1 + sum([loopparameters[0], loopparameters[1], loopparameters[3]]) * 1e-9 * int((repeat + 1) / (self.num_optim + 1))
-            self.laser_hw.set_current(float(laserpower))
-            waveform_name, channel_wf_name, digi_samples = self.generate_population_waveform(wf_name, loopparameters)
-            self.pulser_hw.load_waveform(self.pulser_hw.get_waveform_names())
-            # time.sleep(5)
-            # self.pulser_hw.plot_loaded_asset()
-            data_dict[waveform_name] = []
-            num_bins = 1 + int(self.time_resolution)
-            data_dict_opt[waveform_name] = np.zeros((self.num_optim+1, num_bins))
-            self.fastcounter_hw.configure(parameters[1] / self.time_resolution * 1e-9, parameters[1] * 1e-9, int((repeat + 1) / (self.num_optim + 1)))
-            self.single_run(sleep_time)
-            data_dict_opt[waveform_name][0] = np.sum(self.fastcounter_hw.get_data_trace()[0], axis=0)
-# --------------------------- optimization: --------------------------------
-            self.slowcounter_hw.set_up_counter()
-            ref_count = self.slowcounter_hw.get_counter()[0][0] + 1
-            print('ref_count: ' + str(ref_count))
-# --------------------------- tab for loop wrt. optimize: --------------------------------
-            for i in range(1, 1+self.num_optim):
-                print('optimizasion round: ' + str(i))
-                self.optimize_pos(ref_count)
-                position_array[i-1] = self.scanner_hw.get_scanner_position()
-                self.fastcounter_hw.configure(parameters[1] / self.time_resolution * 1e-9, parameters[1] * 1e-9, int((repeat+1)/(self.num_optim+1)))
-                self.single_run(sleep_time)
-                data_dict_opt[waveform_name][i] = np.sum(self.fastcounter_hw.get_data_trace()[0], axis=0)
-# ----------------------------------------------------------------------------------------
-                # data_dict_opt[waveform_name] = np.sum(data_dict_opt[waveform_name], axis=0)
-            data_dict[waveform_name] = np.sum(data_dict_opt[waveform_name], axis=0)
-
-            print(data_dict_opt[waveform_name])
-            print(data_dict[waveform_name])
-            self._save_logic.save_data({waveform_name: data_dict[waveform_name]},
-                                       parameters={'laser_ontime': self.laser_ontime,
-                                                   'laser_power': '0.1mW', #self.laser_power,
-                                                   'intersequence_delay': (self.intersequence_delay+self.laser_delay)},
-                                       filetype="npz"
-                                       )
-            self._save_logic.save_data({waveform_name: position_array},
-                                       filetype="npz"
-                                       )
-            # print('end perform_population_measurement_routine: ' + str(time.clock()))
-        return data_dict
-
-#   ============== internal funct.s ===============
-
-    def single_run(self, sleep_time):
-        self.fastcounter_hw.start_measure()
-        self.pulser_hw.pulser_on()
-        time.sleep(sleep_time)
-        # self.pulser_hw.reset()
-        self.pulser_hw.pulser_off()
-        self.fastcounter_hw.stop_measure()
-
-    def pulser_laser_on(self):
         self.pulser_hw.set_constant([self._laser_channel])
-
-    def optimize_pos(self, ref_count):
-        print("Optimize:")
-        attempt = 0
-        self.slowcounter_hw.set_up_counter()
-        temp_count = self.slowcounter_hw.get_counter()[0][0]
-        print('temp_count: ' + str(temp_count))
-        print('optimizasion index: ' + str(temp_count / ref_count))
-        while temp_count <= 0.85*ref_count:
-            print('here again')
-            self._optimizer_logic.start_refocus() #TODO: why does script terminate here?!!!
-            temp_count = self.slowcounter_hw.get_counter()[0][0]
-            print('temp_count: ' + str(temp_count))
-            print('optimizasion index: ' + str(temp_count/ref_count))
-            attempt += 1
-            print(attempt)
-        print("Optimization done.")
-        print('scanner_pos : ' + str(self.scanner_hw.get_scanner_position()))
 
     def make_param_sweep_list(self, param_min, increment, num_incr):
         """
@@ -302,19 +364,6 @@ class PopulationCalibrationLogic(GenericLogic):
         :return list:
         """
         return [param_min + i*increment for i in range(num_incr+1)]
-
-    # def load_waveform_to_pulser(self, channel_wf_names):
-    #     """
-    #     Loads waveform into pulser.
-    #     :param waveform_name str: name of (channel-collection of) waveform(s) to be loaded into pulser e.g. 'dummy_ens', not 'dummy_ens_ch1' etc.
-    #     :param parameter_list: parameter list of the form generated in generate_measurement_sequences-function.
-    #     :return: error code; 0: OK, -1: error
-    #     """
-    #     load_dict = {}
-    #     for chnl_name in channel_wf_names:
-    #         load_dict[chnl_name[-1]] = chnl_name
-    #     # print(load_dict)
-    #     return self.pulser_hw.load_waveform(load_dict)
 
     def _seq_to_array(self, seq):
         """
@@ -337,7 +386,7 @@ class PopulationCalibrationLogic(GenericLogic):
         Inputs channel string and outputs corresponding channel index integer
 
         @param str ch: string corresponding to generic channel number i.e. either 'd_chX' or 'a_chX',
-                        where X corresponds to genericv channel number
+                        where X corresponds to generic channel number
         @return int: integer corresponding to physical channel index
         """
         # checks for string being digital and analogue channel name,
